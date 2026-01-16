@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const generalController = require('../controllers/generalController');
 
+
 // تأكد إن الأسماء دي مطابقة للموجودة في module.exports في الكونترولر
 router.get('/sessions', generalController.getSessions);
 router.get('/managements', generalController.getManagements);
