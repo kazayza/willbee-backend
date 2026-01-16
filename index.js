@@ -21,6 +21,12 @@ app.use('/api/children', require('./routes/childRoutes'));
 // مسارات المستخدمين
 app.use('/api/users', require('./routes/userRoutes'));
 
+// مسارات الموظفين
+app.use('/api/employees', require('./routes/employeeRoutes'));
+
+// مسارات المصروفات
+app.use('/api/expenses', require('./routes/expenseRoutes'));
+
 // Test Route
 app.get('/', (req, res) => {
     res.send('🚀 WillBee Backend is Running!');
