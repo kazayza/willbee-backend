@@ -7,18 +7,41 @@ const config = {
     server: process.env.DB_SERVER,
     database: process.env.DB_NAME,
     options: {
-        encrypt: false, // مهم جداً للسيرفرات الخارجية زي somee
-        trustServerCertificate: true // ضروري عشان الشهادات الأمنية
-    }
+        encrypt: false,
+        trustServerCertificate: true,
+        enableArithAbort: true
+    },
+    pool: {
+        max: 10,
+        min: 0,
+        idleTimeoutMillis: 30000
+    },
+    requestTimeout: 30000
 };
 
+// دالة الاتصال الذكية
 const connectDB = async () => {
     try {
-        await sql.connect(config);
-        console.log('✅ Connected to SQL Server successfully!');
+        // لو في اتصال شغال ومفتوح، ارجع واستخدمه
+        if (sql.pool && sql.pool.connected) {
+            return sql.pool;
+        }
+
+        // لو مفيش، او الاتصال مقفول، اقفل القديم وافتح جديد
+        try {
+            await sql.close();
+        } catch (e) {
+            // تجاهل أي خطأ أثناء الإغلاق
+        }
+
+        const pool = await sql.connect(config);
+        sql.pool = pool; // نحفظه في المتغير العام
+        console.log('✅ Connected/Reconnected to SQL Server');
+        return pool;
+
     } catch (err) {
         console.error('❌ Database connection failed:', err.message);
-        process.exit(1); // وقف التطبيق لو مفيش اتصال
+        throw err;
     }
 };
 
