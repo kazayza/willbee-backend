@@ -1,10 +1,9 @@
 const express = require('express');
 const router = express.Router();
 
-// ✅ لاحظ: سطر واحد فقط، واستخدمنا الاسم الجديد للملف
+// ✅ لاحظ: بننادي على الملف الجديد (appGeneralController)
 const generalController = require('../controllers/appGeneralController');
 
-// المسارات كما هي
 router.get('/sessions', generalController.getSessions);
 router.get('/managements', generalController.getManagements);
 router.get('/worker-types', generalController.getWorkerTypes);
