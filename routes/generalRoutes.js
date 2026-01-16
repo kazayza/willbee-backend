@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const generalController = require('../controllers/generalController');
+const generalController = require('../controllers/appGeneralController');
 
 
 // تأكد إن الأسماء دي مطابقة للموجودة في module.exports في الكونترولر
