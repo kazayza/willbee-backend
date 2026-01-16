@@ -49,9 +49,33 @@ const getEshrafTypes = (req, res) => {
     res.status(200).json(types);
 };
 
+// جلب الوظائف (للأب والأم)
+const getProfessions = async (req, res) => {
+    try {
+        const result = await sql.query('SELECT ID, profession FROM tbl_profession');
+        res.status(200).json(result.recordset);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// جلب بيانات الحضانة (للطباعة)
+const getCompanyInfo = async (req, res) => {
+    try {
+        const result = await sql.query('SELECT * FROM tbl_company');
+        res.status(200).json(result.recordset[0]); // بنرجع أوبجكت واحد بس
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// متنساش التصدير
 module.exports = {
     getSessions,
     getManagements,
     getWorkerTypes,
-    getEshrafTypes 
+    getPenaltyTypes,
+    getEshrafTypes,
+    getProfessions, 
+    getCompanyInfo  
 };

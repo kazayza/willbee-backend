@@ -40,6 +40,11 @@ app.use('/api/leads', require('./routes/leadRoutes'));
 app.use('/api/campaigns', require('./routes/campaignRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
 app.use('/api/emp-attendance', require('./routes/employeeAttendanceRoutes'));
+app.use('/api/child-payments', require('./routes/childPaymentRoutes'));
+app.use('/api/interactions', require('./routes/interactionRoutes'));
+app.use('/api/salaries', require('./routes/salaryRoutes'));
+app.use('/api/reports', require('./routes/reportRoutes'));
+app.use('/api/system', require('./routes/systemRoutes'));
 
 // Test Route
 app.get('/', (req, res) => {

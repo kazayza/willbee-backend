@@ -8,6 +8,9 @@ router.get('/sessions', generalController.getSessions);
 router.get('/managements', generalController.getManagements);
 router.get('/worker-types', generalController.getWorkerTypes);
 
+router.get('/professions', generalController.getProfessions);
+router.get('/company-info', generalController.getCompanyInfo);
+
 // أنواع بنود الإشراف (جزاءات ومكافآت)
 router.get('/eshraf-types', generalController.getEshrafTypes);
 
