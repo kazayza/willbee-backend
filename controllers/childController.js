@@ -3,7 +3,7 @@ const { sql } = require('../config/db');
 // 1. دالة لجلب كل الأطفال (موجودة من قبل)
 const getAllChildren = async (req, res) => {
     try {
-        const result = await sql.query`SELECT TOP 100 ID_Child, FullNameArabic, Age, Branch FROM tbl_Child`;
+        const result = await sql.query`SELECT ID_Child, FullNameArabic, Age, Branch FROM tbl_Child`;
         // لاحظ: اخترنا أعمدة محددة عشان الـ List تكون خفيفة في التطبيق
         res.status(200).json(result.recordset);
     } catch (err) {
