@@ -51,7 +51,8 @@ app.get('/', (req, res) => {
     res.send('🚀 WillBee Backend is Running!');
 });
 
-
+// تصدير التطبيق لـ Vercel
+module.exports = app;
 
 // تشغيل السيرفر (محلياً فقط)
 if (require.main === module) {
@@ -60,5 +61,3 @@ if (require.main === module) {
     });
 }
 
-// تصدير التطبيق لـ Vercel
-module.exports = app;
