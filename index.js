@@ -39,6 +39,7 @@ app.use('/api/customers', require('./routes/customerRoutes'));
 app.use('/api/leads', require('./routes/leadRoutes'));
 app.use('/api/campaigns', require('./routes/campaignRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
+app.use('/api/emp-attendance', require('./routes/employeeAttendanceRoutes'));
 
 // Test Route
 app.get('/', (req, res) => {
