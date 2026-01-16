@@ -1,4 +1,4 @@
-// Fixed missing functions update
+ // Fixed missing functions update .
 const { sql } = require('../config/db');
 
 // 1. جلب السنوات المالية
