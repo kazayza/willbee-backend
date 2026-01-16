@@ -1,33 +1,40 @@
 const { sql } = require('../config/db');
 
-// دالة تسجيل الدخول
+// دالة تسجيل الدخول (المطورة)
 const loginUser = async (req, res) => {
-    // بناخد الاسم والباسورد من التطبيق
     const { UserName, Password } = req.body;
 
     try {
         const request = new sql.Request();
-        
-        // بنحمي البيانات
         request.input('user', sql.VarChar, UserName);
         request.input('pass', sql.VarChar, Password);
 
-        // بنبحث عن مستخدم عنده نفس الاسم والباسورد
-        const result = await request.query(`
+        // 1️⃣ التحقق من بيانات المستخدم
+        const userResult = await request.query(`
             SELECT UserId, FullName, Role, permision 
             FROM tbl_users 
             WHERE UserName = @user AND Password = @pass
         `);
 
-        // لو لقينا نتيجة (يعني البيانات صح)
-        if (result.recordset.length > 0) {
-            const user = result.recordset[0];
+        if (userResult.recordset.length > 0) {
+            const user = userResult.recordset[0];
+
+            // 2️⃣ جلب الصلاحيات التفصيلية لهذا المستخدم
+            // بنجيب اسم الشاشة (fname) والصلاحيات (إضافة، تعديل، حذف، عرض)
+            const permissionsResult = await sql.query(`
+                SELECT fname, canAdd, canEdit, canDelete, canview, canOpen
+                FROM tbl_usercontrol 
+                WHERE userCode = ${user.UserId}
+            `);
+
+            // بنرجع المستخدم + صلاحياته في رد واحد
             res.status(200).json({
                 message: 'تم تسجيل الدخول بنجاح ✅',
-                user: user // بنرجع بيانات المستخدم عشان التطبيق يحفظها
+                user: user,
+                permissions: permissionsResult.recordset // قائمة الصلاحيات
             });
+
         } else {
-            // لو ملقيناش حد بالبيانات دي
             res.status(401).json({ message: 'اسم المستخدم أو كلمة المرور غير صحيحة ❌' });
         }
 
@@ -37,6 +44,23 @@ const loginUser = async (req, res) => {
     }
 };
 
+// دالة لجلب صلاحيات مستخدم (لو حبيت تحدثها من غير خروج ودخول)
+const getUserPermissions = async (req, res) => {
+    const { id } = req.params; // User ID
+
+    try {
+        const result = await sql.query(`
+            SELECT fname, canAdd, canEdit, canDelete, canview, canOpen
+            FROM tbl_usercontrol 
+            WHERE userCode = ${id}
+        `);
+        res.status(200).json(result.recordset);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
 module.exports = {
-    loginUser
+    loginUser,
+    getUserPermissions
 };

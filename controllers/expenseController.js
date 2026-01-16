@@ -26,10 +26,11 @@ const getAllExpenses = async (req, res) => {
     }
 };
 
-// 2. جلب أنواع المصروفات
+// جلب أنواع المصروفات (مع المجموعة بتاعتها)
 const getExpenseKinds = async (req, res) => {
     try {
-        const result = await sql.query('SELECT ID, expenseKind FROM tbl_expenseKind');
+        // ضيفنا KindGroup هنا 👇
+        const result = await sql.query('SELECT ID, expenseKind, KindGroup FROM tbl_expenseKind ORDER BY KindGroup, expenseKind');
         res.status(200).json(result.recordset);
     } catch (err) {
         res.status(500).json({ message: 'Error fetching kinds', error: err.message });
