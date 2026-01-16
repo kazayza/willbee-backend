@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
+
+// ✅ لاحظ: سطر واحد فقط، واستخدمنا الاسم الجديد للملف
 const generalController = require('../controllers/appGeneralController');
 
-
-// تأكد إن الأسماء دي مطابقة للموجودة في module.exports في الكونترولر
+// المسارات كما هي
 router.get('/sessions', generalController.getSessions);
 router.get('/managements', generalController.getManagements);
 router.get('/worker-types', generalController.getWorkerTypes);
