@@ -14,5 +14,6 @@ router.get('/:id/salary', empController.getEmployeeSalaryHistory);
 // جلب قائمة الوظائف
 router.get('/jobs', empController.getEmployeeJobs);
 router.get('/:id', empController.getEmployeeById);
+router.put('/:id', empController.updateEmployee);
 
 module.exports = router;

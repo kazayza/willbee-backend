@@ -7,8 +7,7 @@ const getEmployees = async (req, res) => {
     try {
         const request = new sql.Request();
         
-        // جملة الاستعلام الأساسية
-         let query = `
+        let query = `
             SELECT 
                 e.ID, 
                 e.empName, 
@@ -17,11 +16,13 @@ const getEmployees = async (req, res) => {
                 e.jobdate, 
                 e.nationalID,
                 e.empstatus,
-                e.BranchID,        -- مهم للفلتر
-                e.EmpType as workerTypeId, -- مهم للفلتر
+                e.BranchID,        
+                e.EmpType as workerTypeId,
                 b.branchName,
                 m.ManagmentName,
-                w.workdescription
+                w.workdescription,
+                -- حقول إضافية للعرض
+                e.mobile2, e.email, e.adress, e.Qualification, e.Experience
             FROM tbl_empolyee e
             LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
             LEFT JOIN tbl_Managment m ON e.empIDmangment = m.managementID
@@ -39,19 +40,16 @@ const getEmployees = async (req, res) => {
             query += ' AND e.BranchID = @branch';
         }
 
-        // فلتر الحالة (موجود/غير موجود)
         if (activeOnly !== undefined && activeOnly !== 'null') {
             const status = activeOnly === 'true' ? 1 : 0;
             query += ` AND e.empstatus = ${status}`;
         }
 
-        // فلتر الوظيفة (من جدول الموظفين مباشرة)
         if (jobTitle) {
             request.input('job', sql.NVarChar, jobTitle);
             query += ' AND e.job = @job';
         }
 
-        // فلتر نوع العمالة
         if (workerTypeId) {
             request.input('wType', sql.Int, workerTypeId);
             query += ' AND e.EmpType = @wType';
@@ -68,12 +66,14 @@ const getEmployees = async (req, res) => {
     }
 };
 
-// 2. إضافة موظف جديد (بالبيانات الكاملة)
+// 2. إضافة موظف جديد (شامل كل الحقول والراتب)
 const createEmployee = async (req, res) => {
     const { 
-        empName, mobile1, job, nationalID, 
-        branchId, mgmtId, workTypeId, // البيانات الجديدة (IDs)
-        baseSalary // الراتب الأساسي (عشان نسجله بالمرة)
+        empName, mobile1, mobile2, email, adress, // انتبه adress بـ d واحدة
+        job, jobdate, Qualification, Experience,
+        nationalID, branchId, mgmtId, workTypeId,
+        notes, empstatus, baseSalary,
+        userAdd // اسم المستخدم اللي ضاف
     } = req.body;
 
     const transaction = new sql.Transaction();
@@ -81,31 +81,49 @@ const createEmployee = async (req, res) => {
     try {
         await transaction.begin();
 
-        // أ) تسجيل بيانات الموظف الأساسية
+        // أ) إضافة الموظف
         const reqEmp = new sql.Request(transaction);
         reqEmp.input('name', sql.NVarChar, empName);
-        reqEmp.input('mobile', sql.VarChar, mobile1);
+        reqEmp.input('mob1', sql.VarChar, mobile1);
+        reqEmp.input('mob2', sql.VarChar, mobile2);
+        reqEmp.input('mail', sql.VarChar, email);
+        reqEmp.input('addr', sql.VarChar, adress);
+        
         reqEmp.input('job', sql.VarChar, job);
+        reqEmp.input('jDate', sql.DateTime, jobdate);
+        reqEmp.input('qual', sql.VarChar, Qualification);
+        reqEmp.input('exp', sql.VarChar, Experience);
+        
         reqEmp.input('nid', sql.Decimal(14,0), nationalID);
         reqEmp.input('brID', sql.SmallInt, branchId);
         reqEmp.input('mgID', sql.SmallInt, mgmtId);
         reqEmp.input('wkID', sql.SmallInt, workTypeId);
+        
+        reqEmp.input('note', sql.VarChar, notes);
+        reqEmp.input('stat', sql.Bit, empstatus ?? 1); 
+        reqEmp.input('user', sql.VarChar, userAdd);
 
-        const empResult = await reqEmp.query(`
+        const resultEmp = await reqEmp.query(`
             INSERT INTO tbl_empolyee 
-            (empName, mobile1, job, nationalID, BranchID, empIDmangment, EmpType, Addtime, empstatus)
+            (empName, mobile1, mobile2, email, adress, 
+             job, jobdate, Qualification, Experience,
+             nationalID, BranchID, empIDmangment, EmpType, 
+             notes, empstatus, userAdd, Addtime)
             OUTPUT inserted.ID
             VALUES 
-            (@name, @mobile, @job, @nid, @brID, @mgID, @wkID, GETDATE(), 1)
+            (@name, @mob1, @mob2, @mail, @addr, 
+             @job, @jDate, @qual, @exp,
+             @nid, @brID, @mgID, @wkID, 
+             @note, @stat, @user, GETDATE())
         `);
 
-        const newEmpID = empResult.recordset[0].ID;
+        const newEmpID = resultEmp.recordset[0].ID;
 
-        // ب) تسجيل الراتب الأساسي (لو تم إرساله)
+        // ب) إضافة الراتب الأساسي (لو مبعوت)
         if (baseSalary) {
             const reqSal = new sql.Request(transaction);
             reqSal.input('empID', sql.Int, newEmpID);
-            reqSal.input('salary', sql.Decimal(5, 0), baseSalary);
+            reqSal.input('salary', sql.Decimal(18, 2), baseSalary); 
 
             await reqSal.query(`
                 INSERT INTO tbl_baseSalaryEmpolyee (ID_emp, BaseSalary, increseDate)
@@ -114,37 +132,99 @@ const createEmployee = async (req, res) => {
         }
 
         await transaction.commit();
-        res.status(201).json({ message: 'تم تعيين الموظف وتسجيل الراتب بنجاح 👔', id: newEmpID });
+        res.status(201).json({ message: 'تم إضافة الموظف وراتبه بنجاح 👔' });
 
     } catch (err) {
         await transaction.rollback();
-        console.error(err);
+        console.error("Error creating employee:", err);
         res.status(500).json({ message: 'فشل الحفظ', error: err.message });
     }
 };
 
-// 3. جلب تاريخ رواتب موظف (Salary History)
-const getEmployeeSalaryHistory = async (req, res) => {
-    const { id } = req.params; // ID الموظف
+// 3. تعديل بيانات موظف (بدون راتب)
+const updateEmployee = async (req, res) => {
+    const { id } = req.params;
+    const { 
+        empName, mobile1, mobile2, email, adress,
+        job, jobdate, Qualification, Experience,
+        nationalID, branchId, mgmtId, workTypeId,
+        notes, empstatus, userEdit
+    } = req.body;
 
     try {
         const request = new sql.Request();
         request.input('id', sql.Int, id);
+        
+        request.input('name', sql.NVarChar, empName);
+        request.input('mob1', sql.VarChar, mobile1);
+        request.input('mob2', sql.VarChar, mobile2);
+        request.input('mail', sql.VarChar, email);
+        request.input('addr', sql.VarChar, adress);
+        
+        request.input('job', sql.VarChar, job);
+        request.input('jDate', sql.DateTime, jobdate);
+        request.input('qual', sql.VarChar, Qualification);
+        request.input('exp', sql.VarChar, Experience);
+        
+        request.input('nid', sql.Decimal(14,0), nationalID);
+        request.input('brID', sql.SmallInt, branchId);
+        request.input('mgID', sql.SmallInt, mgmtId);
+        request.input('wkID', sql.SmallInt, workTypeId);
+        
+        request.input('note', sql.VarChar, notes);
+        request.input('stat', sql.Bit, empstatus);
+        request.input('user', sql.VarChar, userEdit);
 
+        await request.query(`
+            UPDATE tbl_empolyee 
+            SET 
+                empName = @name,
+                mobile1 = @mob1,
+                mobile2 = @mob2,
+                email = @mail,
+                adress = @addr,
+                job = @job,
+                jobdate = @jDate,
+                Qualification = @qual,
+                Experience = @exp,
+                nationalID = @nid,
+                BranchID = @brID,
+                empIDmangment = @mgID,
+                EmpType = @wkID,
+                notes = @note,
+                empstatus = @stat,
+                useredit = @user,
+                editTime = GETDATE()
+            WHERE ID = @id
+        `);
+
+        res.status(200).json({ message: 'تم تعديل البيانات بنجاح ✅' });
+
+    } catch (err) {
+        console.error("Error updating employee:", err);
+        res.status(500).json({ message: 'فشل التعديل', error: err.message });
+    }
+};
+
+// 4. جلب تاريخ رواتب موظف
+const getEmployeeSalaryHistory = async (req, res) => {
+    const { id } = req.params; 
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, id);
         const result = await request.query(`
             SELECT BaseSalary, increseDate 
             FROM tbl_baseSalaryEmpolyee 
             WHERE ID_emp = @id 
             ORDER BY increseDate DESC
         `);
-
         res.status(200).json(result.recordset);
     } catch (err) {
         res.status(500).json({ message: 'Error fetching salary history', error: err.message });
     }
 };
 
-// دالة جديدة: جلب قائمة الوظائف المتاحة (من جدول الموظفين)
+// 5. جلب الوظائف (للفلتر)
 const getEmployeeJobs = async (req, res) => {
     try {
         const result = await sql.query('SELECT DISTINCT job FROM tbl_empolyee WHERE job IS NOT NULL AND job <> \'\'');
@@ -154,7 +234,7 @@ const getEmployeeJobs = async (req, res) => {
     }
 };
 
-// جلب موظف واحد بالـ ID (للتعديل)
+// 6. جلب موظف واحد (للتعديل)
 const getEmployeeById = async (req, res) => {
     const { id } = req.params;
     try {
@@ -169,12 +249,11 @@ const getEmployeeById = async (req, res) => {
     }
 };
 
-
-
 module.exports = {
     getEmployees,
     getEmployeeJobs,
     createEmployee,
+    updateEmployee, // 👈 ضفناها
     getEmployeeSalaryHistory,
     getEmployeeById
 };
