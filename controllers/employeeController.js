@@ -154,9 +154,27 @@ const getEmployeeJobs = async (req, res) => {
     }
 };
 
+// جلب موظف واحد بالـ ID (للتعديل)
+const getEmployeeById = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await sql.query(`SELECT * FROM tbl_empolyee WHERE ID = ${id}`);
+        if (result.recordset.length > 0) {
+            res.status(200).json(result.recordset[0]);
+        } else {
+            res.status(404).json({ message: 'Not Found' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+
+
 module.exports = {
     getEmployees,
     getEmployeeJobs,
     createEmployee,
-    getEmployeeSalaryHistory
+    getEmployeeSalaryHistory,
+    getEmployeeById
 };
