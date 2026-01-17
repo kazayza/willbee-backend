@@ -2,7 +2,7 @@ const { sql } = require('../config/db');
 
 // 1. عرض الموظفين (مع كافة التفاصيل: فرع، إدارة، نوع عمالة)
 const getEmployees = async (req, res) => {
-    const { search, branchId, activeOnly } = req.query; // فلاتر إضافية
+    const { search, branchId, activeOnly, jobTitle, workerTypeId } = req.query;
 
     try {
         const request = new sql.Request();
