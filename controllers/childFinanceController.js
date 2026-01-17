@@ -56,9 +56,9 @@ const setChildSubscription = async (req, res) => {
             // 🆕 غير موجود لهذا النوع -> إضافة جديد
             await request.query(`
                 INSERT INTO tbl_FinanceChild 
-                (Child_Id, SessionID, Kind_subscrip, amountBase, amount_Sub, discount, BusLine, userAdd, Addtime, withdraw)
+                (Child_Id, SessionID, Kind_subscrip, amountBase, amount_Sub, discount, BusLine, SubDate, userAdd, Addtime, withdraw)
                 VALUES 
-                 (@child, @sess, @kind, @base, @sub, @disc, @bus, @date, @user, GETDATE(), 0)
+                (@child, @sess, @kind, @base, @sub, @disc, @bus, @date, @user, GETDATE(), 0)
             `);
             res.status(201).json({ message: `تم إضافة ${kindSubscription} جديد بنجاح ✅` });
         }
