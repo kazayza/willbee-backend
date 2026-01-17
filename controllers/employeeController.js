@@ -8,7 +8,7 @@ const getEmployees = async (req, res) => {
         const request = new sql.Request();
         
         // جملة الاستعلام الأساسية
-        let query = `
+         let query = `
             SELECT 
                 e.ID, 
                 e.empName, 
@@ -16,10 +16,12 @@ const getEmployees = async (req, res) => {
                 e.job, 
                 e.jobdate, 
                 e.nationalID,
-                e.empstatus,           -- حالة الموظف
-                b.branchName,          -- اسم الفرع
-                m.ManagmentName,       -- اسم الإدارة
-                w.workdescription      -- نوع العمالة (مباشرة/غير مباشرة)
+                e.empstatus,
+                e.BranchID,        -- مهم للفلتر
+                e.EmpType as workerTypeId, -- مهم للفلتر
+                b.branchName,
+                m.ManagmentName,
+                w.workdescription
             FROM tbl_empolyee e
             LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
             LEFT JOIN tbl_Managment m ON e.empIDmangment = m.managementID
@@ -27,21 +29,32 @@ const getEmployees = async (req, res) => {
             WHERE 1=1 
         `;
 
-        // فلتر البحث بالاسم
-        if (search) {
+       if (search) {
             request.input('searchTerm', sql.NVarChar, `%${search}%`);
             query += ' AND e.empName LIKE @searchTerm';
         }
 
-        // فلتر الفرع
         if (branchId) {
             request.input('branch', sql.Int, branchId);
             query += ' AND e.BranchID = @branch';
         }
 
-        // فلتر الحالة (لو عايز النشطين فقط، وهو الافتراضي)
-        if (activeOnly !== 'false') { 
-            query += ' AND e.empstatus = 1'; 
+        // فلتر الحالة (موجود/غير موجود)
+        if (activeOnly !== undefined && activeOnly !== 'null') {
+            const status = activeOnly === 'true' ? 1 : 0;
+            query += ` AND e.empstatus = ${status}`;
+        }
+
+        // فلتر الوظيفة (من جدول الموظفين مباشرة)
+        if (jobTitle) {
+            request.input('job', sql.NVarChar, jobTitle);
+            query += ' AND e.job = @job';
+        }
+
+        // فلتر نوع العمالة
+        if (workerTypeId) {
+            request.input('wType', sql.Int, workerTypeId);
+            query += ' AND e.EmpType = @wType';
         }
 
         query += ' ORDER BY e.empName ASC';
@@ -131,8 +144,19 @@ const getEmployeeSalaryHistory = async (req, res) => {
     }
 };
 
+// دالة جديدة: جلب قائمة الوظائف المتاحة (من جدول الموظفين)
+const getEmployeeJobs = async (req, res) => {
+    try {
+        const result = await sql.query('SELECT DISTINCT job FROM tbl_empolyee WHERE job IS NOT NULL AND job <> \'\'');
+        res.status(200).json(result.recordset);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
 module.exports = {
     getEmployees,
+    getEmployeeJobs,
     createEmployee,
     getEmployeeSalaryHistory
 };
