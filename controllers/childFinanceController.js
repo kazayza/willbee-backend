@@ -78,12 +78,15 @@ const getChildSubscription = async (req, res) => {
         const request = new sql.Request();
         request.input('id', sql.Int, id);
 
-        const query = `
+         const query = `
             SELECT 
+                f.ID,                -- مهم للتعديل والحذف
                 f.amountBase,
                 f.amount_Sub,
                 f.discount,
                 f.BusLine,
+                f.Kind_subscrip,     -- ✅ ضفنا النوع
+                f.SubDate,           -- ✅ ضفنا التاريخ
                 b.BusLine as BusLineName,
                 f.SessionID,
                 s.Sessions as SessionName
@@ -91,6 +94,7 @@ const getChildSubscription = async (req, res) => {
             LEFT JOIN tbl_BusLines b ON f.BusLine = b.ID
             LEFT JOIN tbl_Sessions s ON f.SessionID = s.IDSession
             WHERE f.Child_Id = @id
+            ORDER BY f.SubDate DESC
         `;
 
         const result = await request.query(query);
