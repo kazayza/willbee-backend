@@ -10,7 +10,8 @@ const setChildSubscription = async (req, res) => {
         busLineId,     
         sessionId,     
         kindSubscription, // لازم تكون نص محدد: "اشتراك الدراسة السنوى" أو "اشتراك الباص"
-        user           
+        user,
+        subDate           
     } = req.body;
 
     try {
@@ -24,6 +25,7 @@ const setChildSubscription = async (req, res) => {
         request.input('disc', sql.Decimal(7, 2), discount || 0);
         request.input('bus', sql.SmallInt, busLineId); 
         request.input('user', sql.VarChar, user);
+        request.input('date', sql.DateTime, subDate || new Date()); 
 
         // 1️⃣ البحث الثلاثي: هل للطفل سجل في هذه السنة لهذا النوع؟
         const check = await request.query(`
@@ -43,6 +45,7 @@ const setChildSubscription = async (req, res) => {
                     amount_Sub = @sub, 
                     discount = @disc, 
                     BusLine = @bus, 
+                    SubDate = @date,
                     useredit = @user,
                     editTime = GETDATE()
                 WHERE ID = ${recordID}
@@ -55,7 +58,7 @@ const setChildSubscription = async (req, res) => {
                 INSERT INTO tbl_FinanceChild 
                 (Child_Id, SessionID, Kind_subscrip, amountBase, amount_Sub, discount, BusLine, userAdd, Addtime, withdraw)
                 VALUES 
-                (@child, @sess, @kind, @base, @sub, @disc, @bus, @user, GETDATE(), 0)
+                 (@child, @sess, @kind, @base, @sub, @disc, @bus, @date, @user, GETDATE(), 0)
             `);
             res.status(201).json({ message: `تم إضافة ${kindSubscription} جديد بنجاح ✅` });
         }
