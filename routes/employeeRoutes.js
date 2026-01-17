@@ -11,7 +11,7 @@ router.post('/', empController.createEmployee);
 // سجل الرواتب لموظف معين
 router.get('/:id/salary', empController.getEmployeeSalaryHistory);
 
-//وظائف الموظفين
-router.get('/:id/salary', empController.getEmployeeJobs);
+// جلب قائمة الوظائف
+router.get('/jobs', empController.getEmployeeJobs);
 
 module.exports = router;
