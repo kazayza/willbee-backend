@@ -100,7 +100,7 @@ const getChildSubscription = async (req, res) => {
         const result = await request.query(query);
 
         if (result.recordset.length > 0) {
-            res.status(200).json(result.recordset[0]);
+            res.status(200).json(result.recordset);
         } else {
             res.status(404).json({ message: 'No subscription found for this child' });
         }
