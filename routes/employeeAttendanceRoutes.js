@@ -2,13 +2,16 @@ const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/employeeAttendanceController');
 
-// حفظ الغياب
+// ✅ حفظ/تحديث الغياب
 router.post('/', controller.saveEmpAttendance);
 
-// عرض الغياب
+// ✅ عرض الغياب لتاريخ معين
 router.get('/', controller.getEmpAttendanceByDate);
 
-// ✅ حذف غياب (موظف واحد أو كل اليوم)
+// ✅ عرض سجل كل الأيام (History)
+router.get('/history', controller.getAttendanceHistory);
+
+// ✅ حذف غياب
 router.delete('/', controller.deleteEmpAttendance);
 
 module.exports = router;

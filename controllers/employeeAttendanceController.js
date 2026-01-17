@@ -147,9 +147,54 @@ const deleteEmpAttendance = async (req, res) => {
         res.status(500).json({ message: 'فشل الحذف', error: err.message });
     }
 };
+// في employeeAttendanceController.js - أضف الدالة دي
+
+// ✅ 4. جلب كل أيام الغياب المسجلة (للسجل)
+const getAttendanceHistory = async (req, res) => {
+    const { month, year } = req.query;
+
+    try {
+        const request = new sql.Request();
+        
+        let query = `
+            SELECT 
+                m.ID AS masterId,
+                m.Databsense AS date,
+                m.userAdd,
+                m.Addtime,
+                m.userEdit,
+                m.editTime,
+                COUNT(d.Emp_code) AS absentCount
+            FROM tbl_absenseEmp m
+            LEFT JOIN tbl_absenseEmpDetalies d ON m.ID = d.ID
+        `;
+
+        // فلترة بالشهر والسنة لو موجودين
+        if (month && year) {
+            request.input('month', sql.Int, parseInt(month));
+            request.input('year', sql.Int, parseInt(year));
+            query += ` WHERE MONTH(m.Databsense) = @month AND YEAR(m.Databsense) = @year`;
+        } else if (year) {
+            request.input('year', sql.Int, parseInt(year));
+            query += ` WHERE YEAR(m.Databsense) = @year`;
+        }
+
+        query += `
+            GROUP BY m.ID, m.Databsense, m.userAdd, m.Addtime, m.userEdit, m.editTime
+            ORDER BY m.Databsense DESC
+        `;
+
+        const result = await request.query(query);
+        res.status(200).json(result.recordset);
+
+    } catch (err) {
+        res.status(500).json({ message: 'Error fetching history', error: err.message });
+    }
+};
 
 module.exports = {
     saveEmpAttendance,
     getEmpAttendanceByDate,
-    deleteEmpAttendance
+    deleteEmpAttendance,
+    getAttendanceHistory 
 };
