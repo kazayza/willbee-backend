@@ -35,25 +35,57 @@ const getChildById = async (req, res) => {
 };
 
 // 3. دالة إضافة طفل جديد
+// 3. إضافة طفل جديد (تحديث شامل)
 const createNewChild = async (req, res) => {
-    // البيانات اللي جاية من التطبيق
-    const { FullNameArabic, NationalID, birthDate } = req.body;
+    const { 
+        FullNameArabic, FullNameEnglish, NationalID, birthDate, Branch,
+        FatherName, FatherMobile1, MotherName, MotherMobile1, ResidenceAddress,
+        EmergencyName1, EmergencyNumber1, Notes, Allergies,
+        DidFullTime, DoSports, WearDiapers, userAdd
+    } = req.body;
 
     try {
         const request = new sql.Request();
 
-        // بنربط البيانات بمتغيرات آمنة
-        request.input('name', sql.NVarChar, FullNameArabic);
-        request.input('nid', sql.Decimal(14, 0), NationalID); // لأن نوعه في الداتابيز Decimal
+        // ربط المتغيرات
+        request.input('nameAr', sql.NVarChar, FullNameArabic);
+        request.input('nameEn', sql.NVarChar, FullNameEnglish);
+        request.input('nid', sql.Decimal(14, 0), NationalID);
         request.input('bdate', sql.DateTime, birthDate);
+        request.input('branch', sql.SmallInt, Branch);
+        request.input('status', sql.Bit, 1); // Active by default
+        
+        request.input('fName', sql.VarChar, FatherName);
+        request.input('fMob', sql.VarChar, FatherMobile1);
+        request.input('mName', sql.VarChar, MotherName);
+        request.input('mMob', sql.VarChar, MotherMobile1);
+        request.input('addr', sql.VarChar, ResidenceAddress);
+        
+        request.input('eName', sql.VarChar, EmergencyName1);
+        request.input('eMob', sql.VarChar, EmergencyNumber1);
+        request.input('notes', sql.VarChar, Notes);
+        request.input('allergies', sql.VarChar, Allergies);
+        
+        request.input('fullTime', sql.Bit, DidFullTime);
+        request.input('sports', sql.Bit, DoSports);
+        request.input('diapers', sql.Bit, WearDiapers);
+        request.input('user', sql.VarChar, userAdd);
 
-        // تنفيذ عملية الإضافة
+        // جملة الاستعلام العملاقة
         await request.query(`
-            INSERT INTO tbl_Child (FullNameArabic, NationalID, birthDate, Addtime)
-            VALUES (@name, @nid, @bdate, GETDATE())
+            INSERT INTO tbl_Child 
+            (FullNameArabic, FullNameEnglish, NationalID, birthDate, Branch, Status,
+             FatherName, FatherMobile1, MotherName, MotherMobile1, ResidenceAddress,
+             EmergencyName1, EmergencyNumber1, Notes, Allergies,
+             DidFullTime, DoSports, WearDiapers, userAdd, Addtime)
+            VALUES 
+            (@nameAr, @nameEn, @nid, @bdate, @branch, @status,
+             @fName, @fMob, @mName, @mMob, @addr,
+             @eName, @eMob, @notes, @allergies,
+             @fullTime, @sports, @diapers, @user, GETDATE())
         `);
 
-        res.status(201).json({ message: 'تم إضافة الطفل بنجاح! ✅' });
+        res.status(201).json({ message: 'تم حفظ ملف الطفل كاملاً بنجاح ✅' });
 
     } catch (err) {
         console.error(err);
@@ -62,31 +94,72 @@ const createNewChild = async (req, res) => {
 };
 
 // 4. دالة تعديل بيانات طفل (PUT)
+// 4. تعديل بيانات طفل (تحديث شامل)
 const updateChild = async (req, res) => {
-    const { id } = req.params; // بناخد الرقم من الرابط
-    const { FullNameArabic, NationalID } = req.body; // البيانات الجديدة
+    const { id } = req.params;
+    const { 
+        FullNameArabic, FullNameEnglish, NationalID, birthDate, Branch,
+        FatherName, FatherMobile1, MotherName, MotherMobile1, ResidenceAddress,
+        EmergencyName1, EmergencyNumber1, Notes, Allergies,
+        DidFullTime, DoSports, WearDiapers, userEdit // اسم المستخدم اللي عدل
+    } = req.body;
 
     try {
         const request = new sql.Request();
         request.input('id', sql.Int, id);
-        request.input('name', sql.NVarChar, FullNameArabic);
+        
+        request.input('nameAr', sql.NVarChar, FullNameArabic);
+        request.input('nameEn', sql.NVarChar, FullNameEnglish);
         request.input('nid', sql.Decimal(14, 0), NationalID);
+        request.input('bdate', sql.DateTime, birthDate);
+        request.input('branch', sql.SmallInt, Branch);
+        
+        request.input('fName', sql.VarChar, FatherName);
+        request.input('fMob', sql.VarChar, FatherMobile1);
+        request.input('mName', sql.VarChar, MotherName);
+        request.input('mMob', sql.VarChar, MotherMobile1);
+        request.input('addr', sql.VarChar, ResidenceAddress);
+        
+        request.input('eName', sql.VarChar, EmergencyName1);
+        request.input('eMob', sql.VarChar, EmergencyNumber1);
+        request.input('notes', sql.VarChar, Notes);
+        request.input('allergies', sql.VarChar, Allergies);
+        
+        request.input('fullTime', sql.Bit, DidFullTime);
+        request.input('sports', sql.Bit, DoSports);
+        request.input('diapers', sql.Bit, WearDiapers);
+        request.input('user', sql.VarChar, userEdit);
 
-        // جملة التحديث
-        const result = await request.query(`
+        await request.query(`
             UPDATE tbl_Child 
-            SET FullNameArabic = @name, NationalID = @nid, editTime = GETDATE()
+            SET 
+                FullNameArabic = @nameAr,
+                FullNameEnglish = @nameEn,
+                NationalID = @nid,
+                birthDate = @bdate,
+                Branch = @branch,
+                FatherName = @fName,
+                FatherMobile1 = @fMob,
+                MotherName = @mName,
+                MotherMobile1 = @mMob,
+                ResidenceAddress = @addr,
+                EmergencyName1 = @eName,
+                EmergencyNumber1 = @eMob,
+                Notes = @notes,
+                Allergies = @allergies,
+                DidFullTime = @fullTime,
+                DoSports = @sports,
+                WearDiapers = @diapers,
+                useredit = @user,
+                editTime = GETDATE()
             WHERE ID_Child = @id
         `);
 
-        if (result.rowsAffected[0] > 0) {
-            res.status(200).json({ message: 'تم تعديل البيانات بنجاح ✅' });
-        } else {
-            res.status(404).json({ message: 'لم يتم العثور على الطفل ❌' });
-        }
+        res.status(200).json({ message: 'تم تعديل بيانات الطفل بنجاح ✅' });
 
     } catch (err) {
-        res.status(500).json({ message: 'خطأ في التعديل', error: err.message });
+        console.error(err);
+        res.status(500).json({ message: 'فشل التعديل', error: err.message });
     }
 };
 
