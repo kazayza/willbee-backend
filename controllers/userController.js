@@ -9,9 +9,9 @@ const loginUser = async (req, res) => {
         request.input('user', sql.VarChar, UserName);
         request.input('pass', sql.VarChar, Password);
 
-        // 1️⃣ التحقق من بيانات المستخدم
+        // 1️⃣ التحقق من بيانات المستخدم + EmpID
         const userResult = await request.query(`
-            SELECT UserId, FullName, Role, permision 
+            SELECT UserId, FullName, Role, permision, EmpID
             FROM tbl_users 
             WHERE UserName = @user AND Password = @pass
         `);
@@ -20,18 +20,19 @@ const loginUser = async (req, res) => {
             const user = userResult.recordset[0];
 
             // 2️⃣ جلب الصلاحيات التفصيلية لهذا المستخدم
-            // بنجيب اسم الشاشة (fname) والصلاحيات (إضافة، تعديل، حذف، عرض)
-            const permissionsResult = await sql.query(`
+            const permRequest = new sql.Request();
+            permRequest.input('uid', sql.Int, user.UserId);
+
+            const permissionsResult = await permRequest.query(`
                 SELECT fname, canAdd, canEdit, canDelete, canview, canOpen
                 FROM tbl_usercontrol 
-                WHERE userCode = ${user.UserId}
+                WHERE userCode = @uid
             `);
 
-            // بنرجع المستخدم + صلاحياته في رد واحد
             res.status(200).json({
                 message: 'تم تسجيل الدخول بنجاح ✅',
-                user: user,
-                permissions: permissionsResult.recordset // قائمة الصلاحيات
+                user: user,                      // فيه دلوقتي EmpID كمان
+                permissions: permissionsResult.recordset
             });
 
         } else {
@@ -44,15 +45,17 @@ const loginUser = async (req, res) => {
     }
 };
 
-// دالة لجلب صلاحيات مستخدم (لو حبيت تحدثها من غير خروج ودخول)
 const getUserPermissions = async (req, res) => {
-    const { id } = req.params; // User ID
+    const { id } = req.params;
 
     try {
-        const result = await sql.query(`
+        const request = new sql.Request();
+        request.input('uid', sql.Int, id);
+
+        const result = await request.query(`
             SELECT fname, canAdd, canEdit, canDelete, canview, canOpen
             FROM tbl_usercontrol 
-            WHERE userCode = ${id}
+            WHERE userCode = @uid
         `);
         res.status(200).json(result.recordset);
     } catch (err) {
