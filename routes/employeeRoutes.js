@@ -15,5 +15,7 @@ router.get('/:id/salary', empController.getEmployeeSalaryHistory);
 router.get('/jobs', empController.getEmployeeJobs);
 router.get('/:id', empController.getEmployeeById);
 router.put('/:id', empController.updateEmployee);
+// الموظفين اللى ليهم يوزرز بس
+router.get('/with-users', employeeController.getEmployeesWithUsers);
 
 module.exports = router;

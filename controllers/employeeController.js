@@ -249,6 +249,22 @@ const getEmployeeById = async (req, res) => {
     }
 };
 
+// جلب الموظفين المرتبطين بـ Users فقط
+const getEmployeesWithUsers = async (req, res) => {
+  try {
+    const result = await sql.query(`
+      SELECT e.ID, e.empName
+      FROM tbl_empolyee e
+      INNER JOIN tbl_users u ON u.EmpID = e.ID
+      WHERE e.empstatus = 1 -- لو عندك عمود حالة الموظف
+    `);
+    res.status(200).json(result.recordset);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 module.exports = {
     getEmployees,
     getEmployeeJobs,
