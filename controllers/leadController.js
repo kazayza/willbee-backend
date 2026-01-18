@@ -1,28 +1,77 @@
 const { sql } = require('../config/db');
 
-// 1. تسجيل عميل محتمل جديد (Lead)
+// 1. تسجيل عميل محتمل جديد (Lead) - النسخة الكاملة
 const createLead = async (req, res) => {
     const { 
-        fullName, 
-        phone, 
-        source, // مصدر المعرفة (Facebook, Friend...)
-        interestedProgram, // مهتم بإيه (Baby Class, KG1...)
-        notes 
+        fullName,          // اسم ولي الأمر
+        phone,             // الموبايل
+        email,             // إيميل ولي الأمر (اختياري)
+        childAge,          // سن الطفل (رقم)
+        source,            // مصدر المعرفة (Facebook, Friend...)
+        interestedProgram, // البرنامج المهتم به
+        branchId,          // الفرع المفضّل (ID من tbl_Branch)
+        nextFollowUp,      // ميعاد المتابعة الجاية (تاريخ/وقت)
+        notes              // ملاحظات إضافية
     } = req.body;
 
     try {
         const request = new sql.Request();
-        request.input('name', sql.NVarChar, fullName);
-        request.input('phone', sql.NVarChar, phone);
-        request.input('src', sql.NVarChar, source || 'Direct');
-        request.input('prog', sql.NVarChar, interestedProgram);
-        request.input('notes', sql.NVarChar, notes);
+
+        //  بيانات أساسية
+        request.input('name',   sql.NVarChar, fullName);
+        request.input('phone',  sql.NVarChar, phone);
+        
+        // اختياري
+        request.input('mail',   sql.NVarChar, email || null);
+        request.input('age',    sql.Int,      childAge || null);
+
+        // مصدر المعرفة (لو فاضي نخليه Direct)
+        request.input('src',    sql.NVarChar, (source && source.trim()) ? source : 'Direct');
+
+        // البرنامج المهتم به (اختياري)
+        request.input('prog',   sql.NVarChar, interestedProgram || null);
+
+        // الفرع المفضّل (اختياري)
+        request.input('branch', sql.SmallInt, branchId || null);
+
+        // ميعاد المتابعة الجاية (اختياري)
+        const nextDate = nextFollowUp ? new Date(nextFollowUp) : null;
+        request.input('next',   sql.DateTime, nextDate);
+
+        // ملاحظات (اختيارية)
+        request.input('notes',  sql.NVarChar, notes || null);
 
         await request.query(`
             INSERT INTO tbl_Leads 
-            (FullName, Phone, LeadSource, InterestedProgram, Notes, Status, CreatedAt, ContactDate)
+            (
+                FullName,
+                Phone,
+                Email,
+                ChildAge,
+                LeadSource,
+                InterestedProgram,
+                BranchPreference,
+                ContactDate,
+                Status,
+                Notes,
+                NextFollowUp,
+                CreatedAt
+            )
             VALUES 
-            (@name, @phone, @src, @prog, @notes, 'New', GETDATE(), GETDATE())
+            (
+                @name,
+                @phone,
+                @mail,
+                @age,
+                @src,
+                @prog,
+                @branch,
+                GETDATE(),   -- ContactDate
+                'New',       -- Status
+                @notes,
+                @next,
+                GETDATE()    -- CreatedAt
+            )
         `);
 
         res.status(201).json({ message: 'تم تسجيل العميل المحتمل بنجاح 🎯' });
