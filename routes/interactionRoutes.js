@@ -1,8 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const controller = require('../controllers/interactionController');
+const { addInteraction, getCustomerInteractions } = require('../controllers/interactionController');
 
-router.post('/', controller.addInteraction);
-router.get('/:id', controller.getCustomerInteractions);
+// تسجيل تفاعل جديد
+// POST /api/interactions
+router.post('/', addInteraction);
+
+// جلب تفاعلات عميل معين
+// GET /api/interactions/customer/:id
+router.get('/customer/:id', getCustomerInteractions);
 
 module.exports = router;
