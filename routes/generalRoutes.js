@@ -11,5 +11,6 @@ router.get('/penalty-types', generalController.getPenaltyTypes);
 router.get('/eshraf-types', generalController.getEshrafTypes);
 router.get('/professions', generalController.getProfessions);
 router.get('/company-info', generalController.getCompanyInfo);
+router.get('/branches', generalController.getBranches);
 
 module.exports = router;

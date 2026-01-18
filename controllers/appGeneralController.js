@@ -80,6 +80,16 @@ const getCompanyInfo = async (req, res) => {
     }
 };
 
+// 8. جلب الفروع من tbl_Branch
+const getBranches = async (req, res) => {
+    try {
+        const result = await sql.query('SELECT IDbranch, branchName FROM tbl_Branch ORDER BY IDbranch');
+        res.status(200).json(result.recordset);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
 module.exports = {
     getSessions,
     getManagements,
@@ -87,5 +97,6 @@ module.exports = {
     getPenaltyTypes,
     getEshrafTypes,
     getProfessions,
-    getCompanyInfo
+    getCompanyInfo,
+    getBranches
 };
