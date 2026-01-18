@@ -1,48 +1,57 @@
 const { sql } = require('../config/db');
 const { createSystemNotification } = require('./notificationController');
 
-
-// 1. إنشاء مهمة جديدة
+// 1. إنشاء مهمة جديدة (تدعم عميل أو Lead)
 const createTask = async (req, res) => {
     const { 
         title, 
         description, 
-        assignedTo, // ID الموظف المسؤول (tbl_empolyee.ID)
-        assignedBy, // ID اللي كلفه (ممكن يكون null)
-        priority,   // High, Medium, Low
-        dueDate,    // تاريخ الاستحقاق
-        customerId, // لو مرتبطة بولي أمر معيّن (tbl_Customers.CustomerID)
+        assignedTo,      // ID الموظف المسؤول
+        assignedBy,      // ID اللي كلفه (اختياري)
+        priority,        // High, Medium, Low
+        dueDate,         // تاريخ الاستحقاق
+        customerId,      // لو مرتبطة بولي أمر
+        leadId,          // لو مرتبطة بـ Lead
         notes 
     } = req.body;
 
     try {
         const request = new sql.Request();
         request.input('title', sql.NVarChar, title);
-        request.input('desc', sql.NVarChar, description);
+        request.input('desc', sql.NVarChar, description || null);
         request.input('to', sql.Int, assignedTo);
-        request.input('by', sql.Int, assignedBy);
+        request.input('by', sql.Int, assignedBy || null);
         request.input('prio', sql.NVarChar, priority || 'Medium');
-        request.input('due', sql.DateTime, dueDate);
-        request.input('cust', sql.Int, customerId);
-        request.input('notes', sql.NVarChar, notes);
+        request.input('due', sql.DateTime, dueDate || null);
+        request.input('cust', sql.Int, customerId || null);
+        request.input('leadId', sql.Int, leadId || null);
+
+        // RelatedTo: Lead / Customer / NULL
+        let relatedTo = null;
+        if (leadId) {
+            relatedTo = 'Lead';
+        } else if (customerId) {
+            relatedTo = 'Customer';
+        }
+        request.input('relTo', sql.NVarChar, relatedTo);
+        request.input('notes', sql.NVarChar, notes || null);
 
         await request.query(`
             INSERT INTO tbl_Tasks 
-            (Title, Description, AssignedTo, AssignedBy, Priority, DueDate, CustomerID, Notes, Status, CreatedAt)
+            (Title, Description, AssignedTo, AssignedBy, Priority, DueDate, RelatedTo, RelatedID, CustomerID, Notes, Status, CreatedAt)
             VALUES 
-            (@title, @desc, @to, @by, @prio, @due, @cust, @notes, 'Pending', GETDATE())
+            (@title, @desc, @to, @by, @prio, @due, @relTo, @leadId, @cust, @notes, 'Pending', GETDATE())
         `);
 
-        // نرسل الإشعار "في الخلفية" بدون ما نوقف الـ response
+        // إشعار سيستم داخلي (لو حابب، وإنت أصلاً كاتبه قبل كده)
         createSystemNotification(
             assignedTo, 
             'مهمة جديدة 📋', 
             `تم تكليفك بمهمة جديدة: ${title}`, 
             'Task'
-        ).catch(err => console.error('Notification Error:', err));
+        ).catch(err => console.error('Notification failed:', err));
 
-        // رد واحد بس للعميل
-        res.status(201).json({ message: 'تم إسناد المهمة وإرسال الإشعار ✅' });
+        res.status(201).json({ message: 'تم إسناد المهمة بنجاح ✅' });
 
     } catch (err) {
         console.error(err);
@@ -50,10 +59,10 @@ const createTask = async (req, res) => {
     }
 };
 
-// 2. عرض مهام موظف معين (My Tasks)
+// 2. عرض مهام موظف معيّن (My Tasks)
 const getMyTasks = async (req, res) => {
-    const { empId } = req.params; // ID الموظف
-    const { status } = req.query; // فلتر اختياري بالحالة (Pending/Completed/In Progress)
+    const { empId } = req.params;   // ID الموظف (tbl_empolyee.ID)
+    const { status } = req.query;   // فلتر اختياري بالحالة: Pending / Completed / ...
 
     try {
         const request = new sql.Request();
@@ -61,19 +70,26 @@ const getMyTasks = async (req, res) => {
 
         let query = `
             SELECT 
-                t.TaskID, 
-                t.Title, 
-                t.Description, 
-                t.Priority, 
-                t.Status, 
+                t.TaskID,
+                t.Title,
+                t.Description,
+                t.Priority,
+                t.Status,
                 t.DueDate,
                 t.Notes,
-                cu.FullName AS CustomerName,
-                ch.FullNameArabic AS ChildName
+                cu.FullName       AS CustomerName,
+                ch.FullNameArabic AS ChildName,
+                l.FullName        AS LeadName
             FROM tbl_Tasks t
-            LEFT JOIN tbl_Customers cu ON t.CustomerID = cu.CustomerID
-            LEFT JOIN tbl_Child ch ON cu.ChildID = ch.ID_Child
-            WHERE t.AssignedTo = @id AND t.IsDeleted = 0
+            LEFT JOIN tbl_Customers cu 
+                ON t.CustomerID = cu.CustomerID
+            LEFT JOIN tbl_Child ch 
+                ON cu.ChildID = ch.ID_Child
+            LEFT JOIN tbl_Leads l 
+                ON t.RelatedTo = 'Lead' 
+               AND t.RelatedID = l.LeadID
+            WHERE t.AssignedTo = @id
+              AND t.IsDeleted = 0
         `;
 
         if (status) {
@@ -87,6 +103,7 @@ const getMyTasks = async (req, res) => {
         res.status(200).json(result.recordset);
 
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 };
