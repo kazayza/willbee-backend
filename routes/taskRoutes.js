@@ -1,14 +1,17 @@
 const express = require('express');
 const router = express.Router();
-const taskController = require('../controllers/taskController');
+const { createTask, getMyTasks, updateTaskStatus } = require('../controllers/taskController');
 
-// إنشاء مهمة
-router.post('/', taskController.createTask);
+// إنشاء مهمة جديدة
+// POST /api/tasks
+router.post('/', createTask);
 
-// عرض مهام موظف (ممكن نستخدم ?status=Pending)
-router.get('/employee/:empId', taskController.getMyTasks);
+// عرض مهام موظف معيّن (مع فلتر status اختياري)
+// GET /api/tasks/:empId?status=Pending
+router.get('/:empId', getMyTasks);
 
 // تحديث حالة مهمة
-router.put('/:taskId/status', taskController.updateTaskStatus);
+// PUT /api/tasks/:taskId/status
+router.put('/:taskId/status', updateTaskStatus);
 
 module.exports = router;

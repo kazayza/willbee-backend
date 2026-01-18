@@ -31,4 +31,42 @@ const createCustomer = async (req, res) => {
     }
 };
 
-module.exports = { createCustomer };
+// جلب قائمة العملاء
+const getCustomers = async (req, res) => {
+    const { status } = req.query; // اختياري: Active, Inactive
+
+    try {
+        const request = new sql.Request();
+        let query = `
+            SELECT 
+                CustomerID,
+                FullName,
+                Phone,
+                Email,
+                Status,
+                ChildID,
+                CreatedAt
+            FROM tbl_Customers
+            WHERE IsDeleted = 0
+        `;
+
+        if (status) {
+            request.input('stat', sql.NVarChar, status);
+            query += ' AND Status = @stat';
+        }
+
+        query += ' ORDER BY CreatedAt DESC';
+
+        const result = await request.query(query);
+        res.status(200).json(result.recordset);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+module.exports = { 
+  createCustomer,
+  getCustomers
+};
+
+module.exports = { createCustomer,getCustomers };

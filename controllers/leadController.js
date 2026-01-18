@@ -57,6 +57,7 @@ const getLeads = async (req, res) => {
 };
 
 // 3. تحويل Lead إلى Customer (أهم دالة) 🌟
+// 3. تحويل Lead إلى Customer
 const convertLeadToCustomer = async (req, res) => {
     const { leadId } = req.params;
 
@@ -65,9 +66,15 @@ const convertLeadToCustomer = async (req, res) => {
     try {
         await transaction.begin();
 
-        // أ) نجيب بيانات الـ Lead الأول
+        // أ) نجيب بيانات الـ Lead الأول (بـ Parameterized Query)
         const leadRequest = new sql.Request(transaction);
-        const leadData = await leadRequest.query(`SELECT * FROM tbl_Leads WHERE LeadID = ${leadId}`);
+        leadRequest.input('id', sql.Int, leadId);
+
+        const leadData = await leadRequest.query(`
+            SELECT * 
+            FROM tbl_Leads 
+            WHERE LeadID = @id AND IsDeleted = 0
+        `);
         
         if (leadData.recordset.length === 0) {
             throw new Error('Lead not found');
@@ -79,9 +86,10 @@ const convertLeadToCustomer = async (req, res) => {
         const custRequest = new sql.Request(transaction);
         custRequest.input('name', sql.NVarChar, lead.FullName);
         custRequest.input('phone', sql.NVarChar, lead.Phone);
-        
+
         const custResult = await custRequest.query(`
-            INSERT INTO tbl_Customers (FullName, Phone, Status, CustomerType, CreatedAt)
+            INSERT INTO tbl_Customers 
+            (FullName, Phone, Status, CustomerType, CreatedAt)
             OUTPUT inserted.CustomerID
             VALUES (@name, @phone, 'Active', 'Parent', GETDATE())
         `);
@@ -97,12 +105,16 @@ const convertLeadToCustomer = async (req, res) => {
             UPDATE tbl_Leads 
             SET Status = 'Converted', 
                 ConvertedToCustomerID = @cid, 
-                ConversionDate = GETDATE()
+                ConversionDate = GETDATE(),
+                UpdatedAt = GETDATE()
             WHERE LeadID = @lid
         `);
 
         await transaction.commit();
-        res.status(200).json({ message: 'تم تحويل العميل بنجاح! 🎉', newCustomerId: newCustID });
+        res.status(200).json({ 
+            message: 'تم تحويل العميل بنجاح! 🎉', 
+            newCustomerId: newCustID 
+        });
 
     } catch (err) {
         await transaction.rollback();
