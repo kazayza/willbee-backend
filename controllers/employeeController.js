@@ -269,7 +269,8 @@ module.exports = {
     getEmployees,
     getEmployeeJobs,
     createEmployee,
-    updateEmployee, // 👈 ضفناها
+    updateEmployee,
     getEmployeeSalaryHistory,
+    getEmployeesWithUsers,
     getEmployeeById
 };
