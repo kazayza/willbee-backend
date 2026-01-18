@@ -105,7 +105,7 @@ const getEmpAttendanceByDate = async (req, res) => {
             FROM tbl_absenseEmp m
             INNER JOIN tbl_absenseEmpDetalies d ON m.ID = d.ID
             INNER JOIN tbl_empolyee e ON d.Emp_code = e.ID
-            LEFT JOIN tbl_Aboranch b ON e.BranchID = b.IDbranch
+            LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
             WHERE CAST(m.Databsense AS DATE) = @targetDate
         `;
 
