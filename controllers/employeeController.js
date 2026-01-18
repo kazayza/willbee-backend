@@ -252,15 +252,19 @@ const getEmployeeById = async (req, res) => {
 // جلب الموظفين المرتبطين بـ Users فقط
 const getEmployeesWithUsers = async (req, res) => {
   try {
-    const result = await sql.query(`
+    const request = new sql.Request();
+
+    const result = await request.query(`
       SELECT e.ID, e.empName
-      FROM tbl_empolyee e
-      INNER JOIN tbl_users u ON u.EmpID = e.ID
-      WHERE e.empstatus = 1 -- لو عندك عمود حالة الموظف
+      FROM tbl_empolyee AS e
+      INNER JOIN tbl_users AS u ON u.EmpID = e.ID
+      -- لو عندك عمود empstatus وتستخدمه كحالة موظف، ممكن تضيف الشرط ده:
+      -- WHERE e.empstatus = 1
     `);
+
     res.status(200).json(result.recordset);
   } catch (err) {
-    console.error(err);
+    console.error('getEmployeesWithUsers error:', err);
     res.status(500).json({ error: err.message });
   }
 };
