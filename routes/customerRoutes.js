@@ -1,12 +1,14 @@
+
 const express = require('express');
 const router = express.Router();
+const { createCustomer, getCustomers } = require('../controllers/customerController');
 
-const { getCustomers, createCustomer } = require('../controllers/customerController');
+// جلب قائمة العملاء
+// GET /api/customers
+router.get('/', getCustomers);
 
-// GET /customers
-router.get('/customers', getCustomers);
-
-// POST /customers
-router.post('/customers', createCustomer);
+// إضافة عميل جديد
+// POST /api/customers
+router.post('/', createCustomer);
 
 module.exports = router;
