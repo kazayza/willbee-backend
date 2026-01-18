@@ -88,14 +88,22 @@ const getLeads = async (req, res) => {
 
     try {
         const request = new sql.Request();
-        let query = 'SELECT * FROM tbl_Leads WHERE IsDeleted = 0';
+
+        let query = `
+            SELECT 
+                L.*,
+                B.branchName AS BranchName
+            FROM tbl_Leads L
+            LEFT JOIN tbl_Branch B ON L.BranchPreference = B.IDbranch
+            WHERE L.IsDeleted = 0
+        `;
 
         if (status) {
             request.input('stat', sql.NVarChar, status);
-            query += ' AND Status = @stat';
+            query += ' AND L.Status = @stat';
         }
 
-        query += ' ORDER BY CreatedAt DESC';
+        query += ' ORDER BY L.CreatedAt DESC';
 
         const result = await request.query(query);
         res.status(200).json(result.recordset);
