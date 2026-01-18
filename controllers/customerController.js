@@ -68,5 +68,3 @@ module.exports = {
   createCustomer,
   getCustomers
 };
-
-module.exports = { createCustomer,getCustomers };
