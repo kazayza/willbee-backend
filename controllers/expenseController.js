@@ -96,9 +96,23 @@ const addExpense = async (req, res) => {
     }
 };
 
+  // updateExpense
+const updateExpense = async (req, res) => {
+    const { id } = req.params;
+    const { amount, byan, date, kindId, branchId } = req.body;
+    // ... update logic
+};
+
+// deleteExpense
+const deleteExpense = async (req, res) => {
+    const { id } = req.params;
+    // ... delete logic
+};
 module.exports = {
     getAllExpenses,
     getExpenseKinds,
     getBranches, // تصدير الدالة الجديدة
-    addExpense
+    addExpense,
+    updateExpense,
+    deleteExpense
 };

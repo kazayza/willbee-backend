@@ -14,4 +14,9 @@ router.get('/branches', expenseController.getBranches);
 // 4. إضافة مصروف
 router.post('/', expenseController.addExpense);
 
+router.put('/:id', expenseController.updateExpense);
+
+router.delete('/:id', expenseController.deleteExpense);
+
+
 module.exports = router;
