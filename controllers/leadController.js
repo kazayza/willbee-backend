@@ -180,8 +180,39 @@ const convertLeadToCustomer = async (req, res) => {
     }
 };
 
+
+
+// تحديث حالة Lead (مثلاً: New -> Contacted)
+const updateLeadStatus = async (req, res) => {
+    const { id } = req.params;       // LeadID
+    const { status } = req.body;     // الحالة الجديدة: 'New' / 'Contacted' / 'Converted'
+
+    if (!status) {
+        return res.status(400).json({ message: 'status مطلوب' });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, id);
+        request.input('status', sql.NVarChar, status);
+
+        await request.query(`
+            UPDATE tbl_Leads
+            SET Status = @status,
+                UpdatedAt = GETDATE()
+            WHERE LeadID = @id AND IsDeleted = 0
+        `);
+
+        res.status(200).json({ message: 'تم تحديث حالة العميل المحتمل ✅' });
+    } catch (err) {
+        console.error('updateLeadStatus error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
 module.exports = {
     createLead,
     getLeads,
-    convertLeadToCustomer
+    convertLeadToCustomer,
+    updateLeadStatus
 };

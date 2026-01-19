@@ -10,5 +10,6 @@ router.get('/', leadController.getLeads);
 
 // تحويل Lead لعميل
 router.post('/:leadId/convert', leadController.convertLeadToCustomer);
+router.put('/:id/status', leadController.updateLeadStatus);
 
 module.exports = router;
