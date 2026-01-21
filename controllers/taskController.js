@@ -1,17 +1,17 @@
 const { sql } = require('../config/db');
-const { createSystemNotification } = require('./notificationController');
+const { createAndPushNotification } = require('./notificationController');
 
-// 1. إنشاء مهمة جديدة (تدعم عميل أو Lead)
+// 1. إنشاء مهمة جديدة
 const createTask = async (req, res) => {
     const { 
         title, 
         description, 
-        assignedTo,      // ID الموظف المسؤول
-        assignedBy,      // ID اللي كلفه (اختياري)
-        priority,        // High, Medium, Low
-        dueDate,         // تاريخ الاستحقاق
-        customerId,      // لو مرتبطة بولي أمر
-        leadId,          // لو مرتبطة بـ Lead
+        assignedTo,
+        assignedBy,
+        priority,
+        dueDate,
+        customerId,
+        leadId,
         notes 
     } = req.body;
 
@@ -26,7 +26,6 @@ const createTask = async (req, res) => {
         request.input('cust', sql.Int, customerId || null);
         request.input('leadId', sql.Int, leadId || null);
 
-        // RelatedTo: Lead / Customer / NULL
         let relatedTo = null;
         if (leadId) {
             relatedTo = 'Lead';
@@ -36,22 +35,28 @@ const createTask = async (req, res) => {
         request.input('relTo', sql.NVarChar, relatedTo);
         request.input('notes', sql.NVarChar, notes || null);
 
-        await request.query(`
+        // إضافة المهمة وجلب الـ ID
+        const result = await request.query(`
             INSERT INTO tbl_Tasks 
             (Title, Description, AssignedTo, AssignedBy, Priority, DueDate, RelatedTo, RelatedID, CustomerID, Notes, Status, CreatedAt)
+            OUTPUT INSERTED.TaskID
             VALUES 
             (@title, @desc, @to, @by, @prio, @due, @relTo, @leadId, @cust, @notes, 'Pending', GETDATE())
         `);
 
-        // إشعار سيستم داخلي (لو حابب، وإنت أصلاً كاتبه قبل كده)
-        createSystemNotification(
-            assignedTo, 
-            'مهمة جديدة 📋', 
-            `تم تكليفك بمهمة جديدة: ${title}`, 
-            'Task'
-        ).catch(err => console.error('Notification failed:', err));
+        const taskId = result.recordset[0].TaskID;
 
-        res.status(201).json({ message: 'تم إسناد المهمة بنجاح ✅' });
+        // ✅ إرسال إشعار + Push Notification
+        await createAndPushNotification(
+            assignedTo, 
+            '📋 مهمة جديدة', 
+            `تم تكليفك بمهمة: ${title}`, 
+            'Task',
+            'Task',
+            taskId
+        );
+
+        res.status(201).json({ message: 'تم إسناد المهمة بنجاح ✅', taskId });
 
     } catch (err) {
         console.error(err);
@@ -59,10 +64,10 @@ const createTask = async (req, res) => {
     }
 };
 
-// 2. عرض مهام موظف معيّن (My Tasks)
+// 2. عرض مهام موظف معيّن
 const getMyTasks = async (req, res) => {
-    const { empId } = req.params;   // ID الموظف (tbl_empolyee.ID)
-    const { status } = req.query;   // فلتر اختياري بالحالة: Pending / Completed / ...
+    const { empId } = req.params;
+    const { status } = req.query;
 
     try {
         const request = new sql.Request();
@@ -108,16 +113,21 @@ const getMyTasks = async (req, res) => {
     }
 };
 
-// 3. تحديث حالة المهمة (إنجاز المهمة)
+// 3. تحديث حالة المهمة
 const updateTaskStatus = async (req, res) => {
     const { taskId } = req.params;
-    const { status, notes } = req.body; // Status: 'Completed', 'In Progress', ...
+    const { status, notes } = req.body;
 
     try {
         const request = new sql.Request();
         request.input('id', sql.Int, taskId);
         request.input('stat', sql.NVarChar, status);
         request.input('notes', sql.NVarChar, notes || '');
+
+        // جلب بيانات المهمة قبل التحديث
+        const taskResult = await request.query(`
+            SELECT Title, AssignedBy FROM tbl_Tasks WHERE TaskID = @id
+        `);
 
         await request.query(`
             UPDATE tbl_Tasks 
@@ -132,7 +142,61 @@ const updateTaskStatus = async (req, res) => {
             WHERE TaskID = @id
         `);
 
+        // ✅ إشعار للمدير لما المهمة تكتمل
+        if (status === 'Completed' && taskResult.recordset.length > 0) {
+            const task = taskResult.recordset[0];
+            if (task.AssignedBy) {
+                await createAndPushNotification(
+                    task.AssignedBy,
+                    '✅ مهمة مكتملة',
+                    `تم إنجاز المهمة: ${task.Title}`,
+                    'Task',
+                    'Task',
+                    parseInt(taskId)
+                );
+            }
+        }
+
         res.status(200).json({ message: 'تم تحديث حالة المهمة بنجاح 🔄' });
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// 4. حذف مهمة (Soft Delete)
+const deleteTask = async (req, res) => {
+    const { taskId } = req.params;
+
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, taskId);
+
+        // جلب بيانات المهمة قبل الحذف
+        const taskResult = await request.query(`
+            SELECT Title, AssignedTo FROM tbl_Tasks WHERE TaskID = @id
+        `);
+
+        await request.query(`
+            UPDATE tbl_Tasks 
+            SET IsDeleted = 1, UpdatedAt = GETDATE()
+            WHERE TaskID = @id
+        `);
+
+        // ✅ إشعار للموظف بحذف المهمة
+        if (taskResult.recordset.length > 0) {
+            const task = taskResult.recordset[0];
+            await createAndPushNotification(
+                task.AssignedTo,
+                '🗑️ تم حذف مهمة',
+                `تم حذف المهمة: ${task.Title}`,
+                'Task',
+                'Task',
+                parseInt(taskId)
+            );
+        }
+
+        res.status(200).json({ message: 'تم حذف المهمة ✅' });
 
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -142,5 +206,6 @@ const updateTaskStatus = async (req, res) => {
 module.exports = {
     createTask,
     getMyTasks,
-    updateTaskStatus
+    updateTaskStatus,
+    deleteTask
 };
