@@ -2,21 +2,48 @@ const { sql } = require('../config/db');
 
 // 1. دالة لجلب كل الأطفال (موجودة من قبل)
 // 1. جلب كل الأطفال (مع Addtime و Status)
+// 1. جلب كل الأطفال (مع فلترة السنة المالية)
 const getAllChildren = async (req, res) => {
+    const { sessionId } = req.query; // 👈 استقبال السنة المالية من الـ URL
+
     try {
-        const result = await sql.query`
-            SELECT 
-                ID_Child, 
-                FullNameArabic, 
-                NationalID,
-                Age, 
-                Branch,
-                Status,
-                Addtime
-            FROM tbl_Child 
-            ORDER BY ID_Child DESC
-        `;
+        let query = '';
+        
+        if (sessionId) {
+            // لو في فلتر سنة مالية - جيب الأطفال اللي عندهم اشتراك في السنة دي
+            query = `
+                SELECT DISTINCT
+                    c.ID_Child, 
+                    c.FullNameArabic, 
+                    c.NationalID,
+                    c.Age, 
+                    c.Branch,
+                    c.Status,
+                    c.Addtime
+                FROM tbl_Child c
+                INNER JOIN tbl_FinanceChild f ON c.ID_Child = f.Child_Id
+                WHERE f.SessionID = ${sessionId}
+                ORDER BY c.ID_Child DESC
+            `;
+        } else {
+            // لو مفيش فلتر - جيب كل الأطفال
+            query = `
+                SELECT 
+                    ID_Child, 
+                    FullNameArabic, 
+                    NationalID,
+                    Age, 
+                    Branch,
+                    Status,
+                    Addtime
+                FROM tbl_Child 
+                ORDER BY ID_Child DESC
+            `;
+        }
+
+        const result = await sql.query(query);
         res.status(200).json(result.recordset);
+
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Error fetching children', error: err.message });
