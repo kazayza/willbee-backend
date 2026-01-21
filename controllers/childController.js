@@ -1,10 +1,21 @@
 const { sql } = require('../config/db');
 
 // 1. دالة لجلب كل الأطفال (موجودة من قبل)
+// 1. جلب كل الأطفال (مع Addtime و Status)
 const getAllChildren = async (req, res) => {
     try {
-        const result = await sql.query`SELECT ID_Child, FullNameArabic, Age, Branch FROM tbl_Child`;
-        // لاحظ: اخترنا أعمدة محددة عشان الـ List تكون خفيفة في التطبيق
+        const result = await sql.query`
+            SELECT 
+                ID_Child, 
+                FullNameArabic, 
+                NationalID,
+                Age, 
+                Branch,
+                Status,
+                Addtime
+            FROM tbl_Child 
+            ORDER BY ID_Child DESC
+        `;
         res.status(200).json(result.recordset);
     } catch (err) {
         console.error(err);
