@@ -126,8 +126,170 @@ const changePassword = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 📱 دالة تحديث FCM Token
+// ═══════════════════════════════════════════════════════════════════════════
+const updateFcmToken = async (req, res) => {
+    const { userId, fcmToken } = req.body;
+
+    if (!userId || !fcmToken) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'userId و fcmToken مطلوبين' 
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('uid', sql.Int, userId);
+        request.input('token', sql.VarChar(500), fcmToken);
+
+        await request.query(`
+            UPDATE tbl_users 
+            SET fcm_token = @token 
+            WHERE UserId = @uid
+        `);
+
+        res.status(200).json({ 
+            success: true, 
+            message: 'تم تحديث FCM Token بنجاح ✅' 
+        });
+
+    } catch (err) {
+        console.error('Update FCM Token Error:', err);
+        res.status(500).json({ 
+            success: false, 
+            message: 'خطأ في السيرفر', 
+            error: err.message 
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔔 دالة إرسال إشعار لمستخدم معين
+// ═══════════════════════════════════════════════════════════════════════════
+const sendNotificationToUser = async (req, res) => {
+    const { userId, title, body } = req.body;
+
+    if (!userId || !title || !body) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'userId, title, body مطلوبين' 
+        });
+    }
+
+    try {
+        // 1️⃣ جلب FCM Token للمستخدم
+        const request = new sql.Request();
+        request.input('uid', sql.Int, userId);
+
+        const result = await request.query(`
+            SELECT fcm_token FROM tbl_users WHERE UserId = @uid
+        `);
+
+        if (result.recordset.length === 0 || !result.recordset[0].fcm_token) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'المستخدم غير موجود أو لا يملك FCM Token' 
+            });
+        }
+
+        const fcmToken = result.recordset[0].fcm_token;
+
+        // 2️⃣ إرسال الإشعار عبر Firebase
+        const admin = require('firebase-admin');
+        
+        const message = {
+            notification: {
+                title: title,
+                body: body,
+            },
+            token: fcmToken,
+        };
+
+        const response = await admin.messaging().send(message);
+        
+        res.status(200).json({ 
+            success: true, 
+            message: 'تم إرسال الإشعار بنجاح ✅',
+            response: response
+        });
+
+    } catch (err) {
+        console.error('Send Notification Error:', err);
+        res.status(500).json({ 
+            success: false, 
+            message: 'خطأ في إرسال الإشعار', 
+            error: err.message 
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 📢 دالة إرسال إشعار لجميع المستخدمين
+// ═══════════════════════════════════════════════════════════════════════════
+const sendNotificationToAll = async (req, res) => {
+    const { title, body } = req.body;
+
+    if (!title || !body) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'title و body مطلوبين' 
+        });
+    }
+
+    try {
+        // 1️⃣ جلب كل FCM Tokens
+        const request = new sql.Request();
+
+        const result = await request.query(`
+            SELECT fcm_token FROM tbl_users 
+            WHERE fcm_token IS NOT NULL AND fcm_token != ''
+        `);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'لا يوجد مستخدمين لديهم FCM Token' 
+            });
+        }
+
+        // 2️⃣ إرسال الإشعارات لكل المستخدمين
+        const admin = require('firebase-admin');
+        const tokens = result.recordset.map(row => row.fcm_token);
+
+        const message = {
+            notification: {
+                title: title,
+                body: body,
+            },
+            tokens: tokens, // إرسال لعدة أجهزة
+        };
+
+        const response = await admin.messaging().sendEachForMulticast(message);
+        
+        res.status(200).json({ 
+            success: true, 
+            message: `تم إرسال الإشعار بنجاح ✅`,
+            successCount: response.successCount,
+            failureCount: response.failureCount
+        });
+
+    } catch (err) {
+        console.error('Send Notification to All Error:', err);
+        res.status(500).json({ 
+            success: false, 
+            message: 'خطأ في إرسال الإشعارات', 
+            error: err.message 
+        });
+    }
+};
+
 module.exports = {
     loginUser,
     getUserPermissions,
-    changePassword
+    changePassword,
+    updateFcmToken,
+    sendNotificationToUser,
+    sendNotificationToAll
 };

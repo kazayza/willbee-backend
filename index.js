@@ -1,21 +1,34 @@
 const express = require('express');
 const cors = require('cors');
 const { connectDB } = require('./config/db');
+const admin = require('firebase-admin'); // ✅ أضف ده
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ✅ تهيئة Firebase Admin SDK
+if (!admin.apps.length) {
+    try {
+        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount)
+        });
+        console.log('✅ Firebase Admin initialized successfully');
+    } catch (error) {
+        console.error('❌ Firebase Admin initialization error:', error);
+    }
+}
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
 // 🔥 إضافة مهمة جداً لـ Vercel 🔥
-// قبل ما ننفذ أي Route، تأكد إن الداتابيز متصلة
 app.use(async (req, res, next) => {
     try {
         await connectDB();
-        next(); // كمل للخطوة الجاية
+        next();
     } catch (err) {
         console.error('Connection Middleware Error:', err);
         res.status(500).json({ message: 'Database Connection Error', error: err.message });
@@ -60,4 +73,3 @@ if (require.main === module) {
         console.log(`Server is running on port ${PORT}`);
     });
 }
-
