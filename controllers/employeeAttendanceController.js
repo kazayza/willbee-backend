@@ -192,9 +192,45 @@ const getAttendanceHistory = async (req, res) => {
     }
 };
 
+// ✅ 5. تقرير غياب الموظفين لشهر معين
+const getAttendanceReport = async (req, res) => {
+    const { month, year } = req.query;
+
+    try {
+        const request = new sql.Request();
+        request.input('month', sql.Int, parseInt(month));
+        request.input('year', sql.Int, parseInt(year));
+
+        const query = `
+            SELECT 
+                e.ID AS empId,
+                e.empName,
+                e.job,
+                b.branchName,
+                COUNT(d.Emp_code) AS absenceDays
+            FROM tbl_empolyee e
+            INNER JOIN tbl_absenseEmpDetalies d ON e.ID = d.Emp_code
+            INNER JOIN tbl_absenseEmp m ON d.ID = m.ID
+            LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
+            WHERE MONTH(m.Databsense) = @month 
+              AND YEAR(m.Databsense) = @year
+            GROUP BY e.ID, e.empName, e.job, b.branchName
+            ORDER BY COUNT(d.Emp_code) DESC
+        `;
+
+        const result = await request.query(query);
+        res.status(200).json(result.recordset);
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error fetching report', error: err.message });
+    }
+};
+
 module.exports = {
     saveEmpAttendance,
     getEmpAttendanceByDate,
     deleteEmpAttendance,
-    getAttendanceHistory 
+    getAttendanceHistory,
+    getAttendanceReport 
 };

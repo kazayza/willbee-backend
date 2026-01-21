@@ -14,4 +14,6 @@ router.get('/history', controller.getAttendanceHistory);
 // ✅ حذف غياب
 router.delete('/', controller.deleteEmpAttendance);
 
+router.get('/report', controller.getAttendanceReport);
+
 module.exports = router;
