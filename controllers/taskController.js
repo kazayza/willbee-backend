@@ -1,13 +1,33 @@
 const { sql } = require('../config/db');
 const { createAndPushNotification } = require('./notificationController');
 
+// ✅ دالة مساعدة: جلب UserId من EmpID
+const getUserIdByEmpId = async (empId) => {
+    try {
+        const request = new sql.Request();
+        request.input('empId', sql.Int, empId);
+        
+        const result = await request.query(`
+            SELECT UserId FROM tbl_users WHERE EmpID = @empId
+        `);
+        
+        if (result.recordset.length > 0) {
+            return result.recordset[0].UserId;
+        }
+        return null;
+    } catch (err) {
+        console.error('Error getting UserId by EmpId:', err);
+        return null;
+    }
+};
+
 // 1. إنشاء مهمة جديدة
 const createTask = async (req, res) => {
     const { 
         title, 
         description, 
-        assignedTo,
-        assignedBy,
+        assignedTo,      // ده EmpID
+        assignedBy,      // ده UserId
         priority,
         dueDate,
         customerId,
@@ -46,15 +66,20 @@ const createTask = async (req, res) => {
 
         const taskId = result.recordset[0].TaskID;
 
-        // ✅ إرسال إشعار + Push Notification
-        await createAndPushNotification(
-            assignedTo, 
-            '📋 مهمة جديدة', 
-            `تم تكليفك بمهمة: ${title}`, 
-            'Task',
-            'Task',
-            taskId
-        );
+        // ✅ جلب UserId من EmpID
+        const userId = await getUserIdByEmpId(assignedTo);
+        
+        // ✅ لو الموظف عنده حساب، نبعتله إشعار
+        if (userId) {
+            await createAndPushNotification(
+                userId,  // ✅ UserId مش EmpID
+                '📋 مهمة جديدة', 
+                `تم تكليفك بمهمة: ${title}`, 
+                'Task',
+                'Task',
+                taskId
+            );
+        }
 
         res.status(201).json({ message: 'تم إسناد المهمة بنجاح ✅', taskId });
 
@@ -143,11 +168,12 @@ const updateTaskStatus = async (req, res) => {
         `);
 
         // ✅ إشعار للمدير لما المهمة تكتمل
+        // AssignedBy = UserId (جاي من Flutter) ✅ صح
         if (status === 'Completed' && taskResult.recordset.length > 0) {
             const task = taskResult.recordset[0];
             if (task.AssignedBy) {
                 await createAndPushNotification(
-                    task.AssignedBy,
+                    task.AssignedBy,  // ✅ ده UserId أصلاً
                     '✅ مهمة مكتملة',
                     `تم إنجاز المهمة: ${task.Title}`,
                     'Task',
@@ -186,14 +212,20 @@ const deleteTask = async (req, res) => {
         // ✅ إشعار للموظف بحذف المهمة
         if (taskResult.recordset.length > 0) {
             const task = taskResult.recordset[0];
-            await createAndPushNotification(
-                task.AssignedTo,
-                '🗑️ تم حذف مهمة',
-                `تم حذف المهمة: ${task.Title}`,
-                'Task',
-                'Task',
-                parseInt(taskId)
-            );
+            
+            // ✅ جلب UserId من EmpID
+            const userId = await getUserIdByEmpId(task.AssignedTo);
+            
+            if (userId) {
+                await createAndPushNotification(
+                    userId,  // ✅ UserId مش EmpID
+                    '🗑️ تم حذف مهمة',
+                    `تم حذف المهمة: ${task.Title}`,
+                    'Task',
+                    'Task',
+                    parseInt(taskId)
+                );
+            }
         }
 
         res.status(200).json({ message: 'تم حذف المهمة ✅' });
