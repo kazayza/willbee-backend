@@ -1,6 +1,9 @@
 const { sql } = require('../config/db');
 const { createAndPushNotification } = require('./notificationController');
 
+// ✅ توقيت مصر
+const EGYPT_TIME = "GETUTCDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'Egypt Standard Time'";
+
 // ✅ دالة مساعدة: جلب UserId من EmpID
 const getUserIdByEmpId = async (empId) => {
     try {
@@ -26,8 +29,8 @@ const createTask = async (req, res) => {
     const { 
         title, 
         description, 
-        assignedTo,      // ده EmpID
-        assignedBy,      // ده UserId
+        assignedTo,
+        assignedBy,
         priority,
         dueDate,
         customerId,
@@ -55,24 +58,23 @@ const createTask = async (req, res) => {
         request.input('relTo', sql.NVarChar, relatedTo);
         request.input('notes', sql.NVarChar, notes || null);
 
-        // إضافة المهمة وجلب الـ ID
+        // ✅ إضافة المهمة بتوقيت مصر
         const result = await request.query(`
             INSERT INTO tbl_Tasks 
             (Title, Description, AssignedTo, AssignedBy, Priority, DueDate, RelatedTo, RelatedID, CustomerID, Notes, Status, CreatedAt)
             OUTPUT INSERTED.TaskID
             VALUES 
-            (@title, @desc, @to, @by, @prio, @due, @relTo, @leadId, @cust, @notes, 'Pending', GETDATE())
+            (@title, @desc, @to, @by, @prio, @due, @relTo, @leadId, @cust, @notes, 'Pending', 
+            ${EGYPT_TIME})
         `);
 
         const taskId = result.recordset[0].TaskID;
 
-        // ✅ جلب UserId من EmpID
         const userId = await getUserIdByEmpId(assignedTo);
         
-        // ✅ لو الموظف عنده حساب، نبعتله إشعار
         if (userId) {
             await createAndPushNotification(
-                userId,  // ✅ UserId مش EmpID
+                userId,
                 '📋 مهمة جديدة', 
                 `تم تكليفك بمهمة: ${title}`, 
                 'Task',
@@ -149,11 +151,11 @@ const updateTaskStatus = async (req, res) => {
         request.input('stat', sql.NVarChar, status);
         request.input('notes', sql.NVarChar, notes || '');
 
-        // جلب بيانات المهمة قبل التحديث
         const taskResult = await request.query(`
             SELECT Title, AssignedBy FROM tbl_Tasks WHERE TaskID = @id
         `);
 
+        // ✅ تحديث بتوقيت مصر
         await request.query(`
             UPDATE tbl_Tasks 
             SET Status = @stat, 
@@ -162,18 +164,16 @@ const updateTaskStatus = async (req, res) => {
                             THEN Notes 
                             ELSE ISNULL(Notes, '') + ' | ' + @notes 
                         END,
-                CompletedDate = CASE WHEN @stat = 'Completed' THEN GETDATE() ELSE CompletedDate END,
-                UpdatedAt = GETDATE()
+                CompletedDate = CASE WHEN @stat = 'Completed' THEN ${EGYPT_TIME} ELSE CompletedDate END,
+                UpdatedAt = ${EGYPT_TIME}
             WHERE TaskID = @id
         `);
 
-        // ✅ إشعار للمدير لما المهمة تكتمل
-        // AssignedBy = UserId (جاي من Flutter) ✅ صح
         if (status === 'Completed' && taskResult.recordset.length > 0) {
             const task = taskResult.recordset[0];
             if (task.AssignedBy) {
                 await createAndPushNotification(
-                    task.AssignedBy,  // ✅ ده UserId أصلاً
+                    task.AssignedBy,
                     '✅ مهمة مكتملة',
                     `تم إنجاز المهمة: ${task.Title}`,
                     'Task',
@@ -198,27 +198,25 @@ const deleteTask = async (req, res) => {
         const request = new sql.Request();
         request.input('id', sql.Int, taskId);
 
-        // جلب بيانات المهمة قبل الحذف
         const taskResult = await request.query(`
             SELECT Title, AssignedTo FROM tbl_Tasks WHERE TaskID = @id
         `);
 
+        // ✅ حذف بتوقيت مصر
         await request.query(`
             UPDATE tbl_Tasks 
-            SET IsDeleted = 1, UpdatedAt = GETDATE()
+            SET IsDeleted = 1, UpdatedAt = ${EGYPT_TIME}
             WHERE TaskID = @id
         `);
 
-        // ✅ إشعار للموظف بحذف المهمة
         if (taskResult.recordset.length > 0) {
             const task = taskResult.recordset[0];
             
-            // ✅ جلب UserId من EmpID
             const userId = await getUserIdByEmpId(task.AssignedTo);
             
             if (userId) {
                 await createAndPushNotification(
-                    userId,  // ✅ UserId مش EmpID
+                    userId,
                     '🗑️ تم حذف مهمة',
                     `تم حذف المهمة: ${task.Title}`,
                     'Task',

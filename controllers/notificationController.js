@@ -1,6 +1,9 @@
 const { sql } = require('../config/db');
 const admin = require('firebase-admin');
 
+// ✅ توقيت مصر
+const EGYPT_TIME = "GETUTCDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'Egypt Standard Time'";
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 🔔 دالة إنشاء إشعار + إرسال Push Notification
 // ═══════════════════════════════════════════════════════════════════════════
@@ -14,11 +17,11 @@ const createAndPushNotification = async (userId, title, message, type, relatedTo
         request.input('relTo', sql.NVarChar, relatedTo);
         request.input('relId', sql.Int, relatedId);
 
-        // 1️⃣ حفظ الإشعار في الداتابيز
+        // 1️⃣ حفظ الإشعار في الداتابيز بتوقيت مصر
         await request.query(`
             INSERT INTO tbl_Notifications 
             (UserID, Title, Message, NotificationType, RelatedTo, RelatedID, IsRead, CreatedAt, IsDeleted)
-            VALUES (@uid, @title, @msg, @type, @relTo, @relId, 0, GETDATE(), 0)
+            VALUES (@uid, @title, @msg, @type, @relTo, @relId, 0, ${EGYPT_TIME}, 0)
         `);
 
         // 2️⃣ جلب FCM Token للمستخدم
@@ -75,7 +78,7 @@ const createAndPushToAll = async (title, message, type) => {
 
         const tokens = [];
 
-        // 2️⃣ حفظ إشعار لكل مستخدم في الداتابيز
+        // 2️⃣ حفظ إشعار لكل مستخدم في الداتابيز بتوقيت مصر
         for (const user of usersResult.recordset) {
             const insertRequest = new sql.Request();
             insertRequest.input('uid', sql.Int, user.UserId);
@@ -86,7 +89,7 @@ const createAndPushToAll = async (title, message, type) => {
             await insertRequest.query(`
                 INSERT INTO tbl_Notifications 
                 (UserID, Title, Message, NotificationType, IsRead, CreatedAt, IsDeleted)
-                VALUES (@uid, @title, @msg, @type, 0, GETDATE(), 0)
+                VALUES (@uid, @title, @msg, @type, 0, ${EGYPT_TIME}, 0)
             `);
 
             if (user.fcm_token) {
@@ -146,9 +149,10 @@ const markAsRead = async (req, res) => {
         const request = new sql.Request();
         request.input('id', sql.Int, id);
 
+        // ✅ بتوقيت مصر
         await request.query(`
             UPDATE tbl_Notifications 
-            SET IsRead = 1, ReadAt = GETDATE() 
+            SET IsRead = 1, ReadAt = ${EGYPT_TIME} 
             WHERE NotificationID = @id
         `);
         res.status(200).json({ message: 'تم قراءة الإشعار ☑️' });
@@ -167,9 +171,10 @@ const markAllAsRead = async (req, res) => {
         const request = new sql.Request();
         request.input('uid', sql.Int, userId);
 
+        // ✅ بتوقيت مصر
         await request.query(`
             UPDATE tbl_Notifications 
-            SET IsRead = 1, ReadAt = GETDATE() 
+            SET IsRead = 1, ReadAt = ${EGYPT_TIME} 
             WHERE UserID = @uid AND IsRead = 0
         `);
         res.status(200).json({ message: 'تم قراءة جميع الإشعارات ☑️' });
