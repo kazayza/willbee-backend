@@ -9,7 +9,7 @@ const addPenalty = async (req, res) => {
         kind,
         notes, 
         user ,
-        LocalTime
+        localTime
     } = req.body;
 
     try {
