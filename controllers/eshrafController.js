@@ -1,6 +1,6 @@
 const { sql } = require('../config/db');
 
-// 1. إضافة جزاء أو سلفة جديدة
+// 1. إضافة جزاء أو مكافأة
 const addPenalty = async (req, res) => {
     const { 
         empId, 
@@ -14,11 +14,11 @@ const addPenalty = async (req, res) => {
     try {
         const request = new sql.Request();
         request.input('emp', sql.Int, empId);
-        request.input('amt', sql.Decimal(7, 2), amount);
+        request.input('amt', sql.Decimal(10, 2), amount);
         request.input('date', sql.DateTime, date || new Date());
-        request.input('kind', sql.VarChar, kind);
-        request.input('notes', sql.VarChar, notes);
-        request.input('user', sql.VarChar, user);
+        request.input('kind', sql.NVarChar, kind);
+        request.input('notes', sql.NVarChar, notes);
+        request.input('user', sql.NVarChar, user);
 
         await request.query(`
             INSERT INTO tbl_eshraf 
@@ -27,7 +27,7 @@ const addPenalty = async (req, res) => {
             (@emp, @amt, @date, @kind, @notes, @user, GETDATE(), 0, 0)
         `);
 
-        res.status(201).json({ message: 'تم تسجيل الجزاء/السلفة بنجاح 📉' });
+        res.status(201).json({ message: 'تم التسجيل بنجاح ✅' });
 
     } catch (err) {
         console.error(err);
@@ -110,7 +110,7 @@ const searchEshraf = async (req, res) => {
     }
 };
 
-// ✅ 4. حذف جزاء/مكافأة (جديدة)
+// 4. حذف جزاء/مكافأة
 const deletePenalty = async (req, res) => {
     const { id } = req.params;
     
@@ -131,7 +131,7 @@ const deletePenalty = async (req, res) => {
     }
 };
 
-// ✅ 5. تعديل جزاء/مكافأة (جديدة)
+// 5. تعديل جزاء/مكافأة
 const updatePenalty = async (req, res) => {
     const { id } = req.params;
     const { amount, date, kind, notes, user } = req.body;
@@ -139,11 +139,11 @@ const updatePenalty = async (req, res) => {
     try {
         const request = new sql.Request();
         request.input('id', sql.Int, id);
-        request.input('amt', sql.Decimal(7, 2), amount);
+        request.input('amt', sql.Decimal(10, 2), amount);
         request.input('date', sql.DateTime, date);
-        request.input('kind', sql.VarChar, kind);
-        request.input('notes', sql.VarChar, notes);
-        request.input('user', sql.VarChar, user);
+        request.input('kind', sql.NVarChar, kind);
+        request.input('notes', sql.NVarChar, notes);
+        request.input('user', sql.NVarChar, user);
 
         const result = await request.query(`
             UPDATE tbl_eshraf 
@@ -168,11 +168,81 @@ const updatePenalty = async (req, res) => {
     }
 };
 
+// 🆕 6. تسجيل سلفة مع أقساطها
+const addLoanWithInstallments = async (req, res) => {
+    const { empId, loanAmount, loanDate, notes, user, installments } = req.body;
+
+    // التحقق من البيانات
+    if (!empId || !loanAmount || !installments || installments.length === 0) {
+        return res.status(400).json({ message: 'بيانات ناقصة' });
+    }
+
+    // التحقق من إن إجمالي الأقساط = مبلغ السلفة
+    const totalInstallments = installments.reduce((sum, inst) => sum + Number(inst.amount), 0);
+    if (Math.abs(totalInstallments - loanAmount) > 0.01) {
+        return res.status(400).json({ 
+            message: `إجمالي الأقساط (${totalInstallments}) لا يساوي مبلغ السلفة (${loanAmount})` 
+        });
+    }
+
+    const transaction = new sql.Transaction();
+    
+    try {
+        await transaction.begin();
+
+        // 1. تسجيل السلفة الأصلية
+        const loanRequest = new sql.Request(transaction);
+        loanRequest.input('emp', sql.Int, empId);
+        loanRequest.input('amt', sql.Decimal(10, 2), loanAmount);
+        loanRequest.input('date', sql.DateTime, loanDate || new Date());
+        loanRequest.input('kind', sql.NVarChar, 'سلفه');
+        loanRequest.input('notes', sql.NVarChar, notes || '');
+        loanRequest.input('user', sql.NVarChar, user);
+
+        await loanRequest.query(`
+            INSERT INTO tbl_eshraf 
+            (empolyeeID, amountPenalty, datePenalty, KindPenalty, notesPenalty, userAdd, Addtime, done, qestDone)
+            VALUES 
+            (@emp, @amt, @date, @kind, @notes, @user, GETDATE(), 0, 0)
+        `);
+
+        // 2. تسجيل الأقساط
+        for (let i = 0; i < installments.length; i++) {
+            const inst = installments[i];
+            const instRequest = new sql.Request(transaction);
+            instRequest.input('emp', sql.Int, empId);
+            instRequest.input('amt', sql.Decimal(10, 2), inst.amount);
+            instRequest.input('date', sql.DateTime, inst.date);
+            instRequest.input('kind', sql.NVarChar, 'قسط سلفه');
+            instRequest.input('notes', sql.NVarChar, `قسط ${i + 1} من ${installments.length}`);
+            instRequest.input('user', sql.NVarChar, user);
+
+            await instRequest.query(`
+                INSERT INTO tbl_eshraf 
+                (empolyeeID, amountPenalty, datePenalty, KindPenalty, notesPenalty, userAdd, Addtime, done, qestDone)
+                VALUES 
+                (@emp, @amt, @date, @kind, @notes, @user, GETDATE(), 0, 0)
+            `);
+        }
+
+        await transaction.commit();
+        res.status(201).json({ 
+            message: `تم تسجيل السلفة (${loanAmount} ج) مع ${installments.length} قسط بنجاح ✅` 
+        });
+
+    } catch (err) {
+        await transaction.rollback();
+        console.error('Loan Error:', err);
+        res.status(500).json({ message: 'فشل تسجيل السلفة', error: err.message });
+    }
+};
+
 // ✅ تصدير كل الدوال
 module.exports = {
     addPenalty,
     getEmployeePenalties,
     searchEshraf,
     deletePenalty,
-    updatePenalty
+    updatePenalty,
+    addLoanWithInstallments
 };
