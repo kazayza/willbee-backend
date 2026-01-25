@@ -54,10 +54,10 @@ const getEshrafTypes = (req, res) => {
         { id: 'اشتراك باص', name: 'اشتراك باص', type: 'deduction', factor: -1 },
         { id: 'جزاء', name: 'جزاء إداري/إتلاف', type: 'deduction', factor: -1 },
         // 🟢 الإضافات
-        { id: 'مكافأة', name: 'مكافأة', type: 'addition', factor: 1 },
+        { id: 'مكافاه', name: 'مكافاه', type: 'addition', factor: 1 },
         { id: 'بدل', name: 'بدل (انتقال/وجبة)', type: 'addition', factor: 1 },
         { id: 'حافز', name: 'حافز إضافي', type: 'addition', factor: 1 },
-        { id: 'إضافي', name: 'عمل إضافي (Overtime)', type: 'addition', factor: 1 }
+        { id: 'اضافى', name: 'عمل إضافي (Overtime)', type: 'addition', factor: 1 }
     ];
     res.status(200).json(types);
 };
