@@ -8,7 +8,7 @@ const addPenalty = async (req, res) => {
         date, 
         kind,
         notes, 
-        user ,
+        user,
         localTime
     } = req.body;
 
@@ -74,6 +74,8 @@ const searchEshraf = async (req, res) => {
                 t.notesPenalty, 
                 t.userAdd, 
                 t.Addtime,
+                t.userEdit,
+                t.editTime,
                 e.ID as EmpID,
                 e.empName, 
                 e.job
@@ -136,7 +138,7 @@ const deletePenalty = async (req, res) => {
 // 5. تعديل جزاء/مكافأة
 const updatePenalty = async (req, res) => {
     const { id } = req.params;
-    const { amount, date, kind, notes, user } = req.body;
+    const { amount, date, kind, notes, user, localTime } = req.body;
 
     try {
         const request = new sql.Request();
@@ -146,6 +148,7 @@ const updatePenalty = async (req, res) => {
         request.input('kind', sql.NVarChar, kind);
         request.input('notes', sql.NVarChar, notes);
         request.input('user', sql.NVarChar, user);
+        request.input('editTime', sql.DateTime, localTime || new Date());
 
         const result = await request.query(`
             UPDATE tbl_eshraf 
@@ -155,7 +158,7 @@ const updatePenalty = async (req, res) => {
                 KindPenalty = @kind,
                 notesPenalty = @notes,
                 userEdit = @user,
-                editTime = GETDATE()
+                editTime = @editTime
             WHERE ID = @id
         `);
 
@@ -172,7 +175,7 @@ const updatePenalty = async (req, res) => {
 
 // 🆕 6. تسجيل سلفة مع أقساطها
 const addLoanWithInstallments = async (req, res) => {
-    const { empId, loanAmount, loanDate, notes, user, installments } = req.body;
+    const { empId, loanAmount, loanDate, notes, user, installments,localTime } = req.body;
 
     // التحقق من البيانات
     if (!empId || !loanAmount || !installments || installments.length === 0) {
@@ -200,12 +203,13 @@ const addLoanWithInstallments = async (req, res) => {
         loanRequest.input('kind', sql.NVarChar, 'سلفه');
         loanRequest.input('notes', sql.NVarChar, notes || '');
         loanRequest.input('user', sql.NVarChar, user);
+        loanRequest.input('addTime', sql.DateTime, localTime || new Date());
 
         await loanRequest.query(`
             INSERT INTO tbl_eshraf 
             (empolyeeID, amountPenalty, datePenalty, KindPenalty, notesPenalty, userAdd, Addtime, done, qestDone)
             VALUES 
-            (@emp, @amt, @date, @kind, @notes, @user, GETDATE(), 0, 0)
+            (@emp, @amt, @date, @kind, @notes, @user, @addTime, 0, 0)
         `);
 
         // 2. تسجيل الأقساط
@@ -218,6 +222,7 @@ const addLoanWithInstallments = async (req, res) => {
             instRequest.input('kind', sql.NVarChar, 'قسط سلفه');
             instRequest.input('notes', sql.NVarChar, `قسط ${i + 1} من ${installments.length}`);
             instRequest.input('user', sql.NVarChar, user);
+            instRequest.input('addTime', sql.DateTime, localTime || new Date());
 
             await instRequest.query(`
                 INSERT INTO tbl_eshraf 
