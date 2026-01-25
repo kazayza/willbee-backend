@@ -8,7 +8,8 @@ const addPenalty = async (req, res) => {
         date, 
         kind,
         notes, 
-        user 
+        user ,
+        LocalTime
     } = req.body;
 
     try {
@@ -19,12 +20,13 @@ const addPenalty = async (req, res) => {
         request.input('kind', sql.NVarChar, kind);
         request.input('notes', sql.NVarChar, notes);
         request.input('user', sql.NVarChar, user);
+        request.input('addTime', sql.DateTime, localTime || new Date());
 
         await request.query(`
             INSERT INTO tbl_eshraf 
             (empolyeeID, amountPenalty, datePenalty, KindPenalty, notesPenalty, userAdd, Addtime, done, qestDone)
             VALUES 
-            (@emp, @amt, @date, @kind, @notes, @user, GETDATE(), 0, 0)
+            (@emp, @amt, @date, @kind, @notes, @user, @addTime, 0, 0)
         `);
 
         res.status(201).json({ message: 'تم التسجيل بنجاح ✅' });
