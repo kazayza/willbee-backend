@@ -47,9 +47,11 @@ const getPenaltyTypes = (req, res) => {
 const getEshrafTypes = (req, res) => {
     const types = [
         // 🔴 الخصومات
-        { id: 'غياب', name: 'غياب', type: 'deduction', factor: -1 },
-        { id: 'تأخير', name: 'تأخير', type: 'deduction', factor: -1 },
-        { id: 'سلفة', name: 'سلفة', type: 'deduction', factor: -1 },
+        { id: 'اشراف', name: 'اشراف', type: 'deduction', factor: -1 },
+        { id: 'تاخير', name: 'تاخير', type: 'deduction', factor: -1 },
+        { id: 'قسط سلفه', name: 'قسط سلفه', type: 'deduction', factor: -1 },
+        { id: 'سلفه', name: 'سلفه', type: 'deduction', factor: -1 },
+        { id: 'اشتراك باص', name: 'اشتراك باص', type: 'deduction', factor: -1 },
         { id: 'جزاء', name: 'جزاء إداري/إتلاف', type: 'deduction', factor: -1 },
         // 🟢 الإضافات
         { id: 'مكافأة', name: 'مكافأة', type: 'addition', factor: 1 },
