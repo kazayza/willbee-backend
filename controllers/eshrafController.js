@@ -6,7 +6,7 @@ const addPenalty = async (req, res) => {
         empId, 
         amount, 
         date, 
-        kind,   // نوع الخصم: 'غياب', 'تأخير', 'سلفة', 'إتلاف'
+        kind,
         notes, 
         user 
     } = req.body;
@@ -20,8 +20,6 @@ const addPenalty = async (req, res) => {
         request.input('notes', sql.VarChar, notes);
         request.input('user', sql.VarChar, user);
 
-        // done = 0 (معناه لسه متخصمش من المرتب)
-        // qestDone = 0 (لو سلفة، لسه متسددتش)
         await request.query(`
             INSERT INTO tbl_eshraf 
             (empolyeeID, amountPenalty, datePenalty, KindPenalty, notesPenalty, userAdd, Addtime, done, qestDone)
@@ -37,9 +35,9 @@ const addPenalty = async (req, res) => {
     }
 };
 
-// 2. عرض سجل جزاءات موظف معين (عشان يظهر في بروفايله)
+// 2. عرض سجل جزاءات موظف معين
 const getEmployeePenalties = async (req, res) => {
-    const { id } = req.params; // Emp ID
+    const { id } = req.params;
 
     try {
         const request = new sql.Request();
@@ -58,9 +56,9 @@ const getEmployeePenalties = async (req, res) => {
     }
 };
 
-// 3. بحث وفلترة سجل الجزاءات والمكافآت (لشاشة التقرير)
+// 3. بحث وفلترة سجل الجزاءات والمكافآت
 const searchEshraf = async (req, res) => {
-    const { empId, fromDate, toDate, type, kind } = req.query;
+    const { empId, fromDate, toDate, kind } = req.query;
 
     try {
         const request = new sql.Request();
@@ -82,13 +80,11 @@ const searchEshraf = async (req, res) => {
             WHERE 1=1
         `;
 
-        // 1. فلتر الموظف
         if (empId) {
             request.input('empId', sql.Int, empId);
             query += ' AND t.empolyeeID = @empId';
         }
 
-        // 2. فلتر التاريخ (من - إلى)
         if (fromDate) {
             request.input('fromDate', sql.Date, fromDate);
             query += ' AND t.datePenalty >= @fromDate';
@@ -98,13 +94,11 @@ const searchEshraf = async (req, res) => {
             query += ' AND t.datePenalty <= @toDate';
         }
 
-        // 3. فلتر النوع المحدد (غياب، مكافأة، إلخ)
         if (kind) {
             request.input('kind', sql.NVarChar, kind);
             query += ' AND t.KindPenalty = @kind';
         }
 
-        // ترتيب تنازلي بالتاريخ (الأحدث أولاً)
         query += ' ORDER BY t.datePenalty DESC, t.Addtime DESC';
 
         const result = await request.query(query);
@@ -116,8 +110,69 @@ const searchEshraf = async (req, res) => {
     }
 };
 
+// ✅ 4. حذف جزاء/مكافأة (جديدة)
+const deletePenalty = async (req, res) => {
+    const { id } = req.params;
+    
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, id);
+        
+        const result = await request.query('DELETE FROM tbl_eshraf WHERE ID = @id');
+        
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ message: 'السجل غير موجود' });
+        }
+        
+        res.status(200).json({ message: 'تم الحذف بنجاح 🗑️' });
+    } catch (err) {
+        console.error('Delete Error:', err);
+        res.status(500).json({ message: 'فشل الحذف', error: err.message });
+    }
+};
+
+// ✅ 5. تعديل جزاء/مكافأة (جديدة)
+const updatePenalty = async (req, res) => {
+    const { id } = req.params;
+    const { amount, date, kind, notes, user } = req.body;
+
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, id);
+        request.input('amt', sql.Decimal(7, 2), amount);
+        request.input('date', sql.DateTime, date);
+        request.input('kind', sql.VarChar, kind);
+        request.input('notes', sql.VarChar, notes);
+        request.input('user', sql.VarChar, user);
+
+        const result = await request.query(`
+            UPDATE tbl_eshraf 
+            SET 
+                amountPenalty = @amt,
+                datePenalty = @date,
+                KindPenalty = @kind,
+                notesPenalty = @notes,
+                userEdit = @user,
+                editTime = GETDATE()
+            WHERE ID = @id
+        `);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ message: 'السجل غير موجود' });
+        }
+
+        res.status(200).json({ message: 'تم التعديل بنجاح ✏️' });
+    } catch (err) {
+        console.error('Update Error:', err);
+        res.status(500).json({ message: 'فشل التعديل', error: err.message });
+    }
+};
+
+// ✅ تصدير كل الدوال
 module.exports = {
     addPenalty,
     getEmployeePenalties,
-    searchEshraf 
+    searchEshraf,
+    deletePenalty,
+    updatePenalty
 };
