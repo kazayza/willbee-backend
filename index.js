@@ -58,6 +58,11 @@ app.use('/api/interactions', require('./routes/interactionRoutes'));
 app.use('/api/salaries', require('./routes/salaryRoutes'));
 app.use('/api/reports', require('./routes/reportRoutes'));
 app.use('/api/system', require('./routes/systemRoutes'));
+app.use('/api/lead-sources', require('./routes/leadSourcesRoutes'));
+app.use('/api/customer-children', require('./routes/customerChildrenRoutes'));
+app.use('/api/analytics', require('./routes/analyticsRoutes'));
+
+
 
 // Test Route
 app.get('/', (req, res) => {
