@@ -9,7 +9,7 @@ const {
     updateInteraction,
     deleteInteraction,
     getInteractionStats
-} = require('../controllers/interactionsController');
+} = require('../controllers/interactionController');
 
 // ✅ البحث الموحد (Leads + Customers)
 router.get('/search', searchAllContacts);
