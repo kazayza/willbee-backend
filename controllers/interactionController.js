@@ -14,11 +14,10 @@ const addInteraction = async (req, res) => {
         followUpRequired,
         followUpDate,
         followUpNotes,
-        createdBy,
+        userAdd,
         clientTime 
     } = req.body;
 
-    // لازم يكون فيه customerId أو leadId
     if (!customerId && !leadId) {
         return res.status(400).json({ message: 'customerId أو leadId مطلوب' });
     }
@@ -40,18 +39,48 @@ const addInteraction = async (req, res) => {
         request.input('followReq', sql.Bit, followUpRequired || false);
         request.input('followDate', sql.DateTime, followUpDate ? new Date(followUpDate) : null);
         request.input('followNotes', sql.NVarChar, followUpNotes || null);
-        request.input('createdBy', sql.Int, createdBy || null);
-        request.input('clientTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
+        request.input('userAdd', sql.VarChar, userAdd || null);
+        request.input('addTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
 
         await request.query(`
             INSERT INTO tbl_Interactions 
-            (CustomerID, LeadID, InteractionType, Subject, Details, Outcome, 
-             DurationMinutes, AssignedTo, FollowUpRequired, FollowUpDate, FollowUpNotes,
-             InteractionDate, CreatedBy, CreatedAt, IsDeleted)
+            (
+                CustomerID, 
+                LeadID, 
+                InteractionType, 
+                Subject, 
+                Details, 
+                Outcome, 
+                DurationMinutes, 
+                AssignedTo, 
+                FollowUpRequired, 
+                FollowUpDate, 
+                FollowUpNotes,
+                InteractionDate, 
+                CreatedAt, 
+                IsDeleted,
+                userAdd,
+                Addtime
+            )
             VALUES 
-            (@custId, @leadId, @type, @subj, @det, @out,
-             @duration, @assigned, @followReq, @followDate, @followNotes,
-             @clientTime, @createdBy, @clientTime, 0)
+            (
+                @custId, 
+                @leadId, 
+                @type, 
+                @subj, 
+                @det, 
+                @out,
+                @duration, 
+                @assigned, 
+                @followReq, 
+                @followDate, 
+                @followNotes,
+                @addTime, 
+                @addTime, 
+                0,
+                @userAdd,
+                @addTime
+            )
         `);
 
         res.status(201).json({ message: 'تم تسجيل التفاعل بنجاح ✅' });
@@ -71,24 +100,29 @@ const getCustomerInteractions = async (req, res) => {
 
         const result = await request.query(`
             SELECT 
-                InteractionID,
-                CustomerID,
-                LeadID,
-                InteractionType,
-                Subject,
-                Details,
-                Outcome,
-                DurationMinutes,
-                AssignedTo,
-                FollowUpRequired,
-                FollowUpDate,
-                FollowUpNotes,
-                InteractionDate,
-                CreatedBy,
-                CreatedAt
-            FROM tbl_Interactions
-            WHERE CustomerID = @custId AND IsDeleted = 0
-            ORDER BY InteractionDate DESC
+                I.InteractionID,
+                I.CustomerID,
+                I.LeadID,
+                I.InteractionType,
+                I.Subject,
+                I.Details,
+                I.Outcome,
+                I.DurationMinutes,
+                I.AssignedTo,
+                I.FollowUpRequired,
+                I.FollowUpDate,
+                I.FollowUpNotes,
+                I.InteractionDate,
+                I.CreatedAt,
+                I.userAdd,
+                I.Addtime,
+                I.useredit,
+                I.editTime,
+                E.empName AS AssignedToName
+            FROM tbl_Interactions I
+            LEFT JOIN tbl_empolyee E ON I.AssignedTo = E.ID
+            WHERE I.CustomerID = @custId AND I.IsDeleted = 0
+            ORDER BY I.InteractionDate DESC
         `);
 
         res.status(200).json(result.recordset);
@@ -108,24 +142,29 @@ const getLeadInteractions = async (req, res) => {
 
         const result = await request.query(`
             SELECT 
-                InteractionID,
-                CustomerID,
-                LeadID,
-                InteractionType,
-                Subject,
-                Details,
-                Outcome,
-                DurationMinutes,
-                AssignedTo,
-                FollowUpRequired,
-                FollowUpDate,
-                FollowUpNotes,
-                InteractionDate,
-                CreatedBy,
-                CreatedAt
-            FROM tbl_Interactions
-            WHERE LeadID = @leadId AND IsDeleted = 0
-            ORDER BY InteractionDate DESC
+                I.InteractionID,
+                I.CustomerID,
+                I.LeadID,
+                I.InteractionType,
+                I.Subject,
+                I.Details,
+                I.Outcome,
+                I.DurationMinutes,
+                I.AssignedTo,
+                I.FollowUpRequired,
+                I.FollowUpDate,
+                I.FollowUpNotes,
+                I.InteractionDate,
+                I.CreatedAt,
+                I.userAdd,
+                I.Addtime,
+                I.useredit,
+                I.editTime,
+                E.empName AS AssignedToName
+            FROM tbl_Interactions I
+            LEFT JOIN tbl_empolyee E ON I.AssignedTo = E.ID
+            WHERE I.LeadID = @leadId AND I.IsDeleted = 0
+            ORDER BY I.InteractionDate DESC
         `);
 
         res.status(200).json(result.recordset);
@@ -150,34 +189,39 @@ const getAllInteractionsForPerson = async (req, res) => {
 
         if (customerId) {
             request.input('custId', sql.Int, customerId);
-            conditions.push('CustomerID = @custId');
+            conditions.push('I.CustomerID = @custId');
         }
 
         if (leadId) {
             request.input('leadId', sql.Int, leadId);
-            conditions.push('LeadID = @leadId');
+            conditions.push('I.LeadID = @leadId');
         }
 
         const query = `
             SELECT 
-                InteractionID,
-                CustomerID,
-                LeadID,
-                InteractionType,
-                Subject,
-                Details,
-                Outcome,
-                DurationMinutes,
-                AssignedTo,
-                FollowUpRequired,
-                FollowUpDate,
-                FollowUpNotes,
-                InteractionDate,
-                CreatedBy,
-                CreatedAt
-            FROM tbl_Interactions
-            WHERE IsDeleted = 0 AND (${conditions.join(' OR ')})
-            ORDER BY InteractionDate DESC
+                I.InteractionID,
+                I.CustomerID,
+                I.LeadID,
+                I.InteractionType,
+                I.Subject,
+                I.Details,
+                I.Outcome,
+                I.DurationMinutes,
+                I.AssignedTo,
+                I.FollowUpRequired,
+                I.FollowUpDate,
+                I.FollowUpNotes,
+                I.InteractionDate,
+                I.CreatedAt,
+                I.userAdd,
+                I.Addtime,
+                I.useredit,
+                I.editTime,
+                E.empName AS AssignedToName
+            FROM tbl_Interactions I
+            LEFT JOIN tbl_empolyee E ON I.AssignedTo = E.ID
+            WHERE I.IsDeleted = 0 AND (${conditions.join(' OR ')})
+            ORDER BY I.InteractionDate DESC
         `;
 
         const result = await request.query(query);
@@ -191,13 +235,12 @@ const getAllInteractionsForPerson = async (req, res) => {
 
 // ✅ 5. البحث الموحد (Leads + Customers) مع عدد التفاعلات
 const searchAllContacts = async (req, res) => {
-    const { query, type } = req.query; // type: 'all', 'leads', 'customers'
+    const { query, type } = req.query;
 
     try {
         const searchTerm = query ? `%${query}%` : '%';
         let results = [];
 
-        // جلب Leads
         if (!type || type === 'all' || type === 'leads') {
             const requestLeads = new sql.Request();
             requestLeads.input('search', sql.NVarChar, searchTerm);
@@ -221,7 +264,6 @@ const searchAllContacts = async (req, res) => {
             results = [...results, ...leadsResult.recordset];
         }
 
-        // جلب Customers
         if (!type || type === 'all' || type === 'customers') {
             const requestCustomers = new sql.Request();
             requestCustomers.input('search', sql.NVarChar, searchTerm);
@@ -246,7 +288,6 @@ const searchAllContacts = async (req, res) => {
             results = [...results, ...customersResult.recordset];
         }
 
-        // ترتيب حسب آخر تفاعل
         results.sort((a, b) => {
             if (!a.LastInteraction) return 1;
             if (!b.LastInteraction) return -1;
@@ -272,6 +313,7 @@ const updateInteraction = async (req, res) => {
         followUpRequired,
         followUpDate,
         followUpNotes,
+        useredit,
         clientTime 
     } = req.body;
 
@@ -290,7 +332,8 @@ const updateInteraction = async (req, res) => {
         request.input('followReq', sql.Bit, followUpRequired || false);
         request.input('followDate', sql.DateTime, followUpDate ? new Date(followUpDate) : null);
         request.input('followNotes', sql.NVarChar, followUpNotes || null);
-        request.input('clientTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
+        request.input('useredit', sql.VarChar, useredit || null);
+        request.input('editTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
 
         const result = await request.query(`
             UPDATE tbl_Interactions 
@@ -302,7 +345,8 @@ const updateInteraction = async (req, res) => {
                 FollowUpRequired = @followReq,
                 FollowUpDate = @followDate,
                 FollowUpNotes = @followNotes,
-                InteractionDate = @clientTime
+                useredit = @useredit,
+                editTime = @editTime
             WHERE InteractionID = @id AND IsDeleted = 0
         `);
 
@@ -320,14 +364,19 @@ const updateInteraction = async (req, res) => {
 // ✅ 7. حذف تفاعل (Soft Delete)
 const deleteInteraction = async (req, res) => {
     const { id } = req.params;
+    const { useredit, clientTime } = req.body;
 
     try {
         const request = new sql.Request();
         request.input('id', sql.Int, id);
+        request.input('useredit', sql.VarChar, useredit || null);
+        request.input('editTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
 
         const result = await request.query(`
             UPDATE tbl_Interactions 
-            SET IsDeleted = 1
+            SET IsDeleted = 1,
+                useredit = @useredit,
+                editTime = @editTime
             WHERE InteractionID = @id
         `);
 
@@ -378,6 +427,44 @@ const getInteractionStats = async (req, res) => {
     }
 };
 
+// ✅ 9. جلب التفاعلات اللي محتاجة متابعة
+const getInteractionsNeedFollowUp = async (req, res) => {
+    try {
+        const request = new sql.Request();
+
+        const result = await request.query(`
+            SELECT 
+                I.InteractionID,
+                I.CustomerID,
+                I.LeadID,
+                I.InteractionType,
+                I.Subject,
+                I.FollowUpDate,
+                I.FollowUpNotes,
+                I.AssignedTo,
+                C.FullName AS CustomerName,
+                C.Phone AS CustomerPhone,
+                L.FullName AS LeadName,
+                L.Phone AS LeadPhone,
+                E.empName AS AssignedToName
+            FROM tbl_Interactions I
+            LEFT JOIN tbl_Customers C ON I.CustomerID = C.CustomerID
+            LEFT JOIN tbl_Leads L ON I.LeadID = L.LeadID
+            LEFT JOIN tbl_empolyee E ON I.AssignedTo = E.ID
+            WHERE I.IsDeleted = 0 
+              AND I.FollowUpRequired = 1
+              AND I.FollowUpDate IS NOT NULL
+              AND I.FollowUpDate <= GETDATE()
+            ORDER BY I.FollowUpDate ASC
+        `);
+
+        res.status(200).json(result.recordset);
+    } catch (err) {
+        console.error('getInteractionsNeedFollowUp error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
 module.exports = { 
     addInteraction, 
     getCustomerInteractions,
@@ -386,5 +473,6 @@ module.exports = {
     searchAllContacts,
     updateInteraction,
     deleteInteraction,
-    getInteractionStats
+    getInteractionStats,
+    getInteractionsNeedFollowUp
 };

@@ -8,31 +8,35 @@ const {
     searchAllContacts,
     updateInteraction,
     deleteInteraction,
-    getInteractionStats
+    getInteractionStats,
+    getInteractionsNeedFollowUp
 } = require('../controllers/interactionController');
 
-// ✅ البحث الموحد (Leads + Customers)
+// جلب التفاعلات اللي محتاجة متابعة
+router.get('/need-followup', getInteractionsNeedFollowUp);
+
+// البحث الموحد
 router.get('/search', searchAllContacts);
 
-// ✅ إحصائيات التفاعلات
+// إحصائيات التفاعلات
 router.get('/stats', getInteractionStats);
 
-// ✅ جلب كل التفاعلات لشخص (Lead + Customer معاً)
+// جلب كل التفاعلات لشخص
 router.get('/person', getAllInteractionsForPerson);
 
-// ✅ جلب تفاعلات عميل (Customer)
+// جلب تفاعلات عميل
 router.get('/customer/:id', getCustomerInteractions);
 
-// ✅ جلب تفاعلات عميل محتمل (Lead)
+// جلب تفاعلات Lead
 router.get('/lead/:id', getLeadInteractions);
 
-// ✅ إضافة تفاعل جديد
+// إضافة تفاعل جديد
 router.post('/', addInteraction);
 
-// ✅ تعديل تفاعل
+// تعديل تفاعل
 router.put('/:id', updateInteraction);
 
-// ✅ حذف تفاعل (Soft Delete)
+// حذف تفاعل
 router.delete('/:id', deleteInteraction);
 
 module.exports = router;

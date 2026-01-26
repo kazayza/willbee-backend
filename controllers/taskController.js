@@ -35,7 +35,9 @@ const createTask = async (req, res) => {
         dueDate,
         customerId,
         leadId,
-        notes 
+        notes,
+        userAdd,
+        clientTime
     } = req.body;
 
     try {
@@ -45,7 +47,7 @@ const createTask = async (req, res) => {
         request.input('to', sql.Int, assignedTo);
         request.input('by', sql.Int, assignedBy || null);
         request.input('prio', sql.NVarChar, priority || 'Medium');
-        request.input('due', sql.DateTime, dueDate || null);
+        request.input('due', sql.DateTime, dueDate ? new Date(dueDate) : null);
         request.input('cust', sql.Int, customerId || null);
         request.input('leadId', sql.Int, leadId || null);
 
@@ -57,15 +59,45 @@ const createTask = async (req, res) => {
         }
         request.input('relTo', sql.NVarChar, relatedTo);
         request.input('notes', sql.NVarChar, notes || null);
+        request.input('userAdd', sql.VarChar, userAdd || null);
+        request.input('addTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
 
-        // ✅ إضافة المهمة بتوقيت مصر
         const result = await request.query(`
             INSERT INTO tbl_Tasks 
-            (Title, Description, AssignedTo, AssignedBy, Priority, DueDate, RelatedTo, RelatedID, CustomerID, Notes, Status, CreatedAt)
+            (
+                Title, 
+                Description, 
+                AssignedTo, 
+                AssignedBy, 
+                Priority, 
+                DueDate, 
+                RelatedTo, 
+                RelatedID, 
+                CustomerID, 
+                Notes, 
+                Status, 
+                CreatedAt,
+                userAdd,
+                Addtime
+            )
             OUTPUT INSERTED.TaskID
             VALUES 
-            (@title, @desc, @to, @by, @prio, @due, @relTo, @leadId, @cust, @notes, 'Pending', 
-            ${EGYPT_TIME})
+            (
+                @title, 
+                @desc, 
+                @to, 
+                @by, 
+                @prio, 
+                @due, 
+                @relTo, 
+                @leadId, 
+                @cust, 
+                @notes, 
+                'Pending', 
+                @addTime,
+                @userAdd,
+                @addTime
+            )
         `);
 
         const taskId = result.recordset[0].TaskID;
@@ -109,9 +141,15 @@ const getMyTasks = async (req, res) => {
                 t.Status,
                 t.DueDate,
                 t.Notes,
+                t.CreatedAt,
+                t.userAdd,
+                t.Addtime,
+                t.useredit,
+                t.editTime,
                 cu.FullName       AS CustomerName,
                 ch.FullNameArabic AS ChildName,
-                l.FullName        AS LeadName
+                l.FullName        AS LeadName,
+                e.empName         AS AssignedByName
             FROM tbl_Tasks t
             LEFT JOIN tbl_Customers cu 
                 ON t.CustomerID = cu.CustomerID
@@ -120,6 +158,8 @@ const getMyTasks = async (req, res) => {
             LEFT JOIN tbl_Leads l 
                 ON t.RelatedTo = 'Lead' 
                AND t.RelatedID = l.LeadID
+            LEFT JOIN tbl_empolyee e
+                ON t.AssignedBy = e.ID
             WHERE t.AssignedTo = @id
               AND t.IsDeleted = 0
         `;
@@ -143,19 +183,20 @@ const getMyTasks = async (req, res) => {
 // 3. تحديث حالة المهمة
 const updateTaskStatus = async (req, res) => {
     const { taskId } = req.params;
-    const { status, notes } = req.body;
+    const { status, notes, useredit, clientTime } = req.body;
 
     try {
         const request = new sql.Request();
         request.input('id', sql.Int, taskId);
         request.input('stat', sql.NVarChar, status);
         request.input('notes', sql.NVarChar, notes || '');
+        request.input('useredit', sql.VarChar, useredit || null);
+        request.input('editTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
 
         const taskResult = await request.query(`
             SELECT Title, AssignedBy FROM tbl_Tasks WHERE TaskID = @id
         `);
 
-        // ✅ تحديث بتوقيت مصر
         await request.query(`
             UPDATE tbl_Tasks 
             SET Status = @stat, 
@@ -164,8 +205,10 @@ const updateTaskStatus = async (req, res) => {
                             THEN Notes 
                             ELSE ISNULL(Notes, '') + ' | ' + @notes 
                         END,
-                CompletedDate = CASE WHEN @stat = 'Completed' THEN ${EGYPT_TIME} ELSE CompletedDate END,
-                UpdatedAt = ${EGYPT_TIME}
+                CompletedDate = CASE WHEN @stat = 'Completed' THEN @editTime ELSE CompletedDate END,
+                UpdatedAt = @editTime,
+                useredit = @useredit,
+                editTime = @editTime
             WHERE TaskID = @id
         `);
 
@@ -193,19 +236,24 @@ const updateTaskStatus = async (req, res) => {
 // 4. حذف مهمة (Soft Delete)
 const deleteTask = async (req, res) => {
     const { taskId } = req.params;
+    const { useredit, clientTime } = req.body;
 
     try {
         const request = new sql.Request();
         request.input('id', sql.Int, taskId);
+        request.input('useredit', sql.VarChar, useredit || null);
+        request.input('editTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
 
         const taskResult = await request.query(`
             SELECT Title, AssignedTo FROM tbl_Tasks WHERE TaskID = @id
         `);
 
-        // ✅ حذف بتوقيت مصر
         await request.query(`
             UPDATE tbl_Tasks 
-            SET IsDeleted = 1, UpdatedAt = ${EGYPT_TIME}
+            SET IsDeleted = 1, 
+                UpdatedAt = @editTime,
+                useredit = @useredit,
+                editTime = @editTime
             WHERE TaskID = @id
         `);
 
