@@ -41,7 +41,7 @@ const addInteraction = async (req, res) => {
         request.input('followNotes', sql.NVarChar, followUpNotes || null);
         request.input('userAdd', sql.VarChar, userAdd || null);
         request.input('addTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
-
+        request.input('createdBy', sql.Int, assignedTo || null);
         await request.query(`
             INSERT INTO tbl_Interactions 
             (
@@ -60,7 +60,8 @@ const addInteraction = async (req, res) => {
                 CreatedAt, 
                 IsDeleted,
                 userAdd,
-                Addtime
+                Addtime,
+                CreatedBy
             )
             VALUES 
             (
@@ -80,6 +81,7 @@ const addInteraction = async (req, res) => {
                 0,
                 @userAdd,
                 @addTime
+                @createdBy
             )
         `);
 
