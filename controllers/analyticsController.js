@@ -2,6 +2,7 @@ const { sql } = require('../config/db');
 
 // ✅ 1. تحليل مصادر العملاء (Lead Sources Analytics)
 // يجيب: عدد Leads، عدد Converted، نسبة التحويل، التكلفة
+// ✅ 1. تحليل مصادر العملاء (Lead Sources Analytics)
 const getLeadSourceAnalytics = async (req, res) => {
     const { startDate, endDate, branchId } = req.query;
 
@@ -11,41 +12,45 @@ const getLeadSourceAnalytics = async (req, res) => {
         // شروط الوقت والفرع
         let dateCondition = '';
         let branchCondition = '';
+        let costSubquery = '0'; // Default cost
 
         if (startDate && endDate) {
-            request.input('start', sql.DateTime, new Date(startDate));
-            request.input('end', sql.DateTime, new Date(endDate));
-            dateCondition = 'AND L.CreatedAt BETWEEN @start AND @end';
+            request.input('startDate', sql.DateTime, new Date(startDate));
+            request.input('endDate', sql.DateTime, new Date(endDate));
+            dateCondition = 'AND L.CreatedAt BETWEEN @startDate AND @endDate';
+            
+            // Cost subquery فقط لو فيه تواريخ
+            costSubquery = `
+                ISNULL((
+                    SELECT SUM(Budget)
+                    FROM tbl_Campaigns C 
+                    WHERE C.CampaignName = COALESCE(S.SourceName, L.LeadSource)
+                    AND C.StartDate >= @startDate AND C.EndDate <= @endDate
+                ), 0)
+            `;
         }
 
         if (branchId) {
-            request.input('branch', sql.Int, branchId);
-            branchCondition = 'AND L.BranchPreference = @branch';
+            request.input('branchId', sql.Int, branchId);
+            branchCondition = 'AND L.BranchPreference = @branchId';
         }
 
-        // الاستعلام المعقد
+        // الاستعلام المحسّن
         const query = `
             SELECT 
-                COALESCE(L.LeadSource, 'Unknown') AS SourceName,
+                COALESCE(S.SourceName, L.LeadSource, N'غير محدد') AS SourceName,
+                S.SourceColor,
                 COUNT(*) AS TotalLeads,
                 SUM(CASE WHEN L.Status = 'Converted' THEN 1 ELSE 0 END) AS ConvertedLeads,
-                
-                -- حساب التكلفة (لو المصدر مرتبط بحملة)
-                -- دي محتاجة ربط مع الحملات لو فيه علاقة مباشرة، 
-                -- بس هنا هنفترض إن المصدر هو اسم الحملة أو مرتبط بيها
-                (
-                    SELECT SUM(Budget) 
-                    FROM tbl_Campaigns C 
-                    WHERE C.CampaignName = L.LeadSource 
-                    AND C.StartDate >= @start AND C.EndDate <= @end
-                ) AS TotalCost
-
+                SUM(CASE WHEN L.Status IN ('Lost', 'Not Interested') THEN 1 ELSE 0 END) AS LostLeads,
+                ${costSubquery} AS TotalCost
             FROM tbl_Leads L
+            LEFT JOIN tbl_LeadSources S ON L.SourceID = S.SourceID
             WHERE L.IsDeleted = 0 
             ${dateCondition} 
             ${branchCondition}
-            GROUP BY L.LeadSource
-            ORDER BY TotalLeads DESC
+            GROUP BY COALESCE(S.SourceName, L.LeadSource, N'غير محدد'), S.SourceColor
+            ORDER BY COUNT(*) DESC
         `;
 
         const result = await request.query(query);
@@ -62,11 +67,13 @@ const getLeadSourceAnalytics = async (req, res) => {
 
             return {
                 source: row.SourceName,
+                color: row.SourceColor || null,
                 leads: row.TotalLeads,
                 converted: row.ConvertedLeads,
+                lost: row.LostLeads || 0,
                 rate: parseFloat(conversionRate),
                 cost: row.TotalCost || 0,
-                cpl: parseFloat(costPerLead) // Cost Per Lead
+                cpl: parseFloat(costPerLead)
             };
         });
 
