@@ -12,22 +12,11 @@ const getLeadSourceAnalytics = async (req, res) => {
         // شروط الوقت والفرع
         let dateCondition = '';
         let branchCondition = '';
-        let costSubquery = '0'; // Default cost
 
         if (startDate && endDate) {
             request.input('startDate', sql.DateTime, new Date(startDate));
             request.input('endDate', sql.DateTime, new Date(endDate));
             dateCondition = 'AND L.CreatedAt BETWEEN @startDate AND @endDate';
-            
-            // Cost subquery فقط لو فيه تواريخ
-            costSubquery = `
-                ISNULL((
-                    SELECT SUM(Budget)
-                    FROM tbl_Campaigns C 
-                    WHERE C.CampaignName = COALESCE(S.SourceName, L.LeadSource)
-                    AND C.StartDate >= @startDate AND C.EndDate <= @endDate
-                ), 0)
-            `;
         }
 
         if (branchId) {
@@ -35,21 +24,24 @@ const getLeadSourceAnalytics = async (req, res) => {
             branchCondition = 'AND L.BranchPreference = @branchId';
         }
 
-        // الاستعلام المحسّن
+        // الاستعلام مع JOIN على tbl_LeadSources
         const query = `
             SELECT 
-                COALESCE(S.SourceName, L.LeadSource, N'غير محدد') AS SourceName,
+                COALESCE(S.SourceName, N'غير محدد') AS SourceName,
+                S.SourceIcon,
                 S.SourceColor,
                 COUNT(*) AS TotalLeads,
                 SUM(CASE WHEN L.Status = 'Converted' THEN 1 ELSE 0 END) AS ConvertedLeads,
-                SUM(CASE WHEN L.Status IN ('Lost', 'Not Interested') THEN 1 ELSE 0 END) AS LostLeads,
-                ${costSubquery} AS TotalCost
+                SUM(CASE WHEN L.Status IN ('Lost', 'Not Interested') THEN 1 ELSE 0 END) AS LostLeads
             FROM tbl_Leads L
             LEFT JOIN tbl_LeadSources S ON L.SourceID = S.SourceID
             WHERE L.IsDeleted = 0 
             ${dateCondition} 
             ${branchCondition}
-            GROUP BY COALESCE(S.SourceName, L.LeadSource, N'غير محدد'), S.SourceColor
+            GROUP BY 
+                S.SourceName,
+                S.SourceIcon,
+                S.SourceColor
             ORDER BY COUNT(*) DESC
         `;
 
@@ -60,20 +52,17 @@ const getLeadSourceAnalytics = async (req, res) => {
             const conversionRate = row.TotalLeads > 0 
                 ? ((row.ConvertedLeads / row.TotalLeads) * 100).toFixed(1) 
                 : 0;
-            
-            const costPerLead = (row.TotalCost && row.TotalLeads > 0)
-                ? (row.TotalCost / row.TotalLeads).toFixed(2)
-                : 0;
 
             return {
                 source: row.SourceName,
+                icon: row.SourceIcon || 'other',
                 color: row.SourceColor || null,
                 leads: row.TotalLeads,
                 converted: row.ConvertedLeads,
                 lost: row.LostLeads || 0,
                 rate: parseFloat(conversionRate),
-                cost: row.TotalCost || 0,
-                cpl: parseFloat(costPerLead)
+                cost: 0,
+                cpl: 0
             };
         });
 
