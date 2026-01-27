@@ -18,4 +18,6 @@ router.put('/:taskId/status', updateTaskStatus);
 // DELETE /api/tasks/:taskId
 router.delete('/:taskId', deleteTask);
 
+
+router.get('/lead/:leadId/count', getLeadTasksCount);
 module.exports = router;

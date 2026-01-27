@@ -281,9 +281,36 @@ const deleteTask = async (req, res) => {
     }
 };
 
+// ✅ جلب عدد المهام لـ Lead معين
+const getLeadTasksCount = async (req, res) => {
+    const { leadId } = req.params;
+
+    try {
+        const request = new sql.Request();
+        request.input('leadId', sql.Int, leadId);
+
+        const result = await request.query(`
+            SELECT COUNT(*) AS TasksCount
+            FROM tbl_Tasks
+            WHERE RelatedTo = 'Lead' 
+              AND RelatedID = @leadId 
+              AND IsDeleted = 0
+        `);
+
+        res.status(200).json({ 
+            count: result.recordset[0].TasksCount 
+        });
+
+    } catch (err) {
+        console.error('getLeadTasksCount error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
 module.exports = {
     createTask,
     getMyTasks,
     updateTaskStatus,
-    deleteTask
+    deleteTask,
+    getLeadTasksCount
 };
