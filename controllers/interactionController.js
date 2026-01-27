@@ -80,7 +80,7 @@ const addInteraction = async (req, res) => {
                 @addTime, 
                 0,
                 @userAdd,
-                @addTime
+                @addTime,
                 @createdBy
             )
         `);
