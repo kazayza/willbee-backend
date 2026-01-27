@@ -62,6 +62,8 @@ app.use('/api/lead-sources', require('./routes/leadSourcesRoutes'));
 app.use('/api/customer-children', require('./routes/customerChildrenRoutes'));
 app.use('/api/analytics', require('./routes/analyticsRoutes'));
 app.use('/api/dashboard-crm', require('./routes/dashboardCRMRoutes'));
+app.use('/api/lead-statuses', require('./routes/leadStatusRoutes'));
+
 
 
 
