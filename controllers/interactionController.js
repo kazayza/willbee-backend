@@ -84,7 +84,24 @@ const addInteraction = async (req, res) => {
                 @createdBy
             )
         `);
+        
+        if (leadId) {
+    const updateRequest = new sql.Request();
+    updateRequest.input('leadId', sql.Int, leadId);
+    updateRequest.input('editTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
+    updateRequest.input('useredit', sql.VarChar, userAdd || null);
 
+    await updateRequest.query(`
+        UPDATE tbl_Leads 
+        SET Status = 'Contacted',
+            UpdatedAt = @editTime,
+            useredit = @useredit,
+            editTime = @editTime
+        WHERE LeadID = @leadId 
+          AND Status = 'New'
+          AND IsDeleted = 0
+    `);
+}
         res.status(201).json({ message: 'تم تسجيل التفاعل بنجاح ✅' });
     } catch (err) {
         console.error('addInteraction error:', err);
