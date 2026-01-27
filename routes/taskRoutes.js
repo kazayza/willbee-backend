@@ -1,10 +1,23 @@
 const express = require('express');
 const router = express.Router();
-const { createTask, getMyTasks, updateTaskStatus, deleteTask } = require('../controllers/taskController');
+
+
+const { 
+    createTask, 
+    getMyTasks, 
+    updateTaskStatus, 
+    deleteTask,
+    getLeadTasksCount  
+} = require('../controllers/taskController');
 
 // إنشاء مهمة جديدة
 // POST /api/tasks
 router.post('/', createTask);
+
+// ✅ مهم: حط المسار ده قبل المسار العام /:empId
+// جلب عدد مهام Lead معين
+// GET /api/tasks/lead/:leadId/count
+router.get('/lead/:leadId/count', getLeadTasksCount);
 
 // عرض مهام موظف معيّن (مع فلتر status اختياري)
 // GET /api/tasks/:empId?status=Pending
@@ -14,10 +27,8 @@ router.get('/:empId', getMyTasks);
 // PUT /api/tasks/:taskId/status
 router.put('/:taskId/status', updateTaskStatus);
 
-// حذف مهمة ✅ جديد
+// حذف مهمة
 // DELETE /api/tasks/:taskId
 router.delete('/:taskId', deleteTask);
 
-
-router.get('/lead/:leadId/count', getLeadTasksCount);
 module.exports = router;
