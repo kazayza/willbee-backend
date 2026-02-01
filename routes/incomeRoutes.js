@@ -27,4 +27,7 @@ router.post('/', incomeController.addIncome);
 // ═══════════════════════════════════════════════════════════════
 router.post('/subscription', incomeController.addSubscriptionPayment);
 
+// تحصيل إيراد عام (كورسات، أنشطة، مبيعات)
+router.post('/general', incomeController.addGeneralIncome);
+
 module.exports = router;

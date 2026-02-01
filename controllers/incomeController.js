@@ -339,10 +339,85 @@ const getChildSubscriptionDetails = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 6. تحصيل إيراد عام (كورسات، أنشطة، مبيعات)
+// ═══════════════════════════════════════════════════════════════
+const addGeneralIncome = async (req, res) => {
+    const { 
+        amount,
+        childId,
+        branchId,
+        kindId,
+        sessionId,
+        receiptNo,
+        notes,
+        userAdd,
+        addTime,
+        payDate
+    } = req.body;
+
+    const transaction = new sql.Transaction();
+
+    try {
+        await transaction.begin();
+
+        // 1️⃣ تسجيل رأس الإيصال في tbl_income
+        const requestHead = new sql.Request(transaction);
+        requestHead.input('incomeDate', sql.Date, payDate);
+        requestHead.input('userAdd', sql.VarChar, userAdd);
+        requestHead.input('addTime', sql.DateTime, addTime);
+        requestHead.input('byan', sql.VarChar, notes || 'تحصيل إيراد');
+
+        const headResult = await requestHead.query(`
+            INSERT INTO tbl_income (incomeDate, incomeByan, userAdd, Addtime, IncomeDone)
+            OUTPUT inserted.ID
+            VALUES (@incomeDate, @byan, @userAdd, @addTime, 1)
+        `);
+
+        const newIncomeID = headResult.recordset[0].ID;
+
+        // 2️⃣ تسجيل التفاصيل في tbl_incomeDetalis
+        const requestDetail = new sql.Request(transaction);
+        requestDetail.input('incID', sql.Int, newIncomeID);
+        requestDetail.input('amount', sql.Decimal(10, 2), amount);
+        requestDetail.input('kind', sql.SmallInt, kindId);
+        requestDetail.input('branch', sql.SmallInt, branchId);
+        requestDetail.input('child', sql.Int, childId);
+        requestDetail.input('session', sql.SmallInt, sessionId);
+        requestDetail.input('receipt', sql.VarChar, receiptNo);
+        requestDetail.input('notes', sql.VarChar, notes);
+        requestDetail.input('datePay', sql.Date, payDate);
+
+        await requestDetail.query(`
+            INSERT INTO tbl_incomeDetalis 
+            (IDincome, incomeAmount, incomeKind, incomBranchtxt, child_ID, incomeSessiontxt, ReceiptNumber, Notes, date_Pay)
+            VALUES 
+            (@incID, @amount, @kind, @branch, @child, @session, @receipt, @notes, @datePay)
+        `);
+
+        await transaction.commit();
+        res.status(201).json({ 
+            success: true,
+            message: 'تم تحصيل المبلغ بنجاح ✅', 
+            id: newIncomeID 
+        });
+
+    } catch (err) {
+        await transaction.rollback();
+        console.error(err);
+        res.status(500).json({ 
+            success: false,
+            message: 'فشلت عملية التحصيل', 
+            error: err.message 
+        });
+    }
+};
+
 module.exports = {
     getAllIncomes,
     getIncomeKinds,
     addIncome,
     addSubscriptionPayment,      
-    getChildSubscriptionDetails
+    getChildSubscriptionDetails,
+    addGeneralIncome
 };
