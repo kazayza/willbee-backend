@@ -578,7 +578,7 @@ const deleteIncome = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// 10. فلترة الإيرادات
+// 10. فلترة الإيرادات - معدّل ✅
 // ═══════════════════════════════════════════════════════════════
 const filterIncomes = async (req, res) => {
     const { sessionId, branchId, kindId, childId, fromDate, toDate } = req.query;
@@ -588,10 +588,14 @@ const filterIncomes = async (req, res) => {
             SELECT 
                 i.ID, 
                 i.incomeDate, 
+                d.child_ID as ID_Child,
                 c.FullNameArabic as ChildName,
+                d.incomeKind as KindId,
                 k.incomeKind as KindName,
                 k.kindGroup,
+                d.incomBranchtxt as BranchId,
                 b.branchName,
+                d.incomeSessiontxt,
                 d.incomeAmount, 
                 d.ReceiptNumber,
                 d.Notes,
