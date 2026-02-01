@@ -108,6 +108,7 @@ const addSubscriptionPayment = async (req, res) => {
         childId,         // الطفل
         branchId,        // الفرع
         kindId,          // نوع الإيراد (6 = اشتراك دراسة)
+        sessionId,       // العام المالي ⭐ مهم جداً
         receiptNo,       // رقم الإيصال الورقي
         notes,           // ملاحظات
         installmentId,   // ID القسط (لو بيدفع قسط) - اختياري
@@ -136,22 +137,23 @@ const addSubscriptionPayment = async (req, res) => {
 
         const newIncomeID = headResult.recordset[0].ID;
 
-        // 2️⃣ تسجيل التفاصيل في tbl_incomeDetalis
+        // 2️⃣ تسجيل التفاصيل في tbl_incomeDetalis (مع incomeSessiontxt)
         const requestDetail = new sql.Request(transaction);
         requestDetail.input('incID', sql.Int, newIncomeID);
         requestDetail.input('amount', sql.Decimal(10, 2), amount);
         requestDetail.input('kind', sql.SmallInt, kindId || 6);
         requestDetail.input('branch', sql.SmallInt, branchId);
         requestDetail.input('child', sql.Int, childId);
+        requestDetail.input('session', sql.SmallInt, sessionId);  // ⭐ العام المالي
         requestDetail.input('receipt', sql.VarChar, receiptNo);
         requestDetail.input('notes', sql.VarChar, notes);
         requestDetail.input('datePay', sql.DateTime, payDate || addTime);
 
         await requestDetail.query(`
             INSERT INTO tbl_incomeDetalis 
-            (IDincome, incomeAmount, incomeKind, incomBranchtxt, child_ID, ReceiptNumber, Notes, date_Pay)
+            (IDincome, incomeAmount, incomeKind, incomBranchtxt, child_ID, incomeSessiontxt, ReceiptNumber, Notes, date_Pay)
             VALUES 
-            (@incID, @amount, @kind, @branch, @child, @receipt, @notes, @datePay)
+            (@incID, @amount, @kind, @branch, @child, @session, @receipt, @notes, @datePay)
         `);
 
         // 3️⃣ تحديث القسط (لو موجود installmentId)
@@ -169,20 +171,23 @@ const addSubscriptionPayment = async (req, res) => {
                 const installmentAmount = parseFloat(installment.amountPyment || 0);
                 const financeId = installment.PaymentID;
 
-                // نحسب إجمالي المدفوع للطفل من الإيرادات
+                // نحسب إجمالي المدفوع للطفل في العام المالي ده
                 const requestTotalPaid = new sql.Request(transaction);
                 requestTotalPaid.input('childId', sql.Int, childId);
                 requestTotalPaid.input('kindId', sql.SmallInt, kindId || 6);
+                requestTotalPaid.input('sessionId', sql.SmallInt, sessionId);  // ⭐ فلترة بالعام
 
                 const totalPaidResult = await requestTotalPaid.query(`
                     SELECT ISNULL(SUM(incomeAmount), 0) as totalPaid
                     FROM tbl_incomeDetalis
-                    WHERE child_ID = @childId AND incomeKind = @kindId
+                    WHERE child_ID = @childId 
+                      AND incomeKind = @kindId
+                      AND incomeSessiontxt = @sessionId
                 `);
 
                 const totalPaid = parseFloat(totalPaidResult.recordset[0].totalPaid || 0);
 
-                // نحسب إجمالي الأقساط المطلوبة لحد القسط الحالي
+                // نحسب إجمالي الأقساط المطلوبة لحد القسط الحالي (مرتبة بالتاريخ)
                 const requestInstTotal = new sql.Request(transaction);
                 requestInstTotal.input('financeId', sql.Int, financeId);
                 requestInstTotal.input('instId', sql.Int, installmentId);
@@ -190,13 +195,15 @@ const addSubscriptionPayment = async (req, res) => {
                 const instTotalResult = await requestInstTotal.query(`
                     SELECT ISNULL(SUM(amountPyment), 0) as totalRequired
                     FROM tbl_PaymentsChild 
-                    WHERE PaymentID = @financeId AND ID <= @instId
+                    WHERE PaymentID = @financeId 
+                      AND ID <= @instId
+                      AND PaymentDone = 0
                 `);
 
                 const totalRequired = parseFloat(instTotalResult.recordset[0].totalRequired || 0);
 
-                // لو المدفوع >= المطلوب للقسط، نعلم عليه مدفوع
-                if (totalPaid >= totalRequired) {
+                // لو المدفوع >= مبلغ القسط المحدد، نعلم عليه مدفوع
+                if (totalPaid >= installmentAmount) {
                     const requestUpdateInst = new sql.Request(transaction);
                     requestUpdateInst.input('instId', sql.Int, installmentId);
                     requestUpdateInst.input('useredit', sql.VarChar, userAdd);
@@ -291,16 +298,18 @@ const getChildSubscriptionDetails = async (req, res) => {
             ORDER BY MonthPayment ASC
         `);
 
-        // 3️⃣ حساب المدفوع من tbl_incomeDetalis (المصدر الصحيح)
+        // 3️⃣ حساب المدفوع من tbl_incomeDetalis (مرتبط بالعام المالي) ⭐
         const requestPaid = new sql.Request();
         requestPaid.input('childId', sql.Int, childId);
-        requestPaid.input('kindId', sql.SmallInt, 6); // اشتراك دراسة
+        requestPaid.input('kindId', sql.SmallInt, 6);
+        requestPaid.input('sessionId', sql.SmallInt, sessionId);  // ⭐ فلترة بالعام
 
         const paidResult = await requestPaid.query(`
             SELECT ISNULL(SUM(d.incomeAmount), 0) as totalPaid
             FROM tbl_incomeDetalis d
             WHERE d.child_ID = @childId 
               AND d.incomeKind = @kindId
+              AND d.incomeSessiontxt = @sessionId
         `);
 
         const totalPaid = parseFloat(paidResult.recordset[0].totalPaid || 0);
