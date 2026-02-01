@@ -3,31 +3,43 @@ const router = express.Router();
 const incomeController = require('../controllers/incomeController');
 
 // ═══════════════════════════════════════════════════════════════
-// عرض وفلترة الإيرادات
+// 1. الـ Routes الثابتة (لازم تيجي الأول)
 // ═══════════════════════════════════════════════════════════════
+
+// عرض الإيرادات
 router.get('/', incomeController.getAllIncomes);
+
+// فلترة الإيرادات
 router.get('/filter', incomeController.filterIncomes);
-router.get('/:id', incomeController.getIncomeById);
 
-// ═══════════════════════════════════════════════════════════════
-// أنواع الإيرادات (Dropdown)
-// ═══════════════════════════════════════════════════════════════
-router.get('/kinds/all', incomeController.getIncomeKinds);
+// أنواع الإيرادات (كانت بتضرب Error عشان مكانها كان غلط)
+router.get('/kinds', incomeController.getIncomeKinds); // رجعتها kinds بس عشان متلخبطش الـ Flutter
+router.get('/kinds/all', incomeController.getIncomeKinds); // احتياطي لو بتستخدم ده
 
-// ═══════════════════════════════════════════════════════════════
 // بيانات اشتراك طفل
-// ═══════════════════════════════════════════════════════════════
 router.get('/subscription/:childId/:sessionId', incomeController.getChildSubscriptionDetails);
 
 // ═══════════════════════════════════════════════════════════════
-// إضافة إيراد
+// 2. الـ Routes المتغيرة (تيجي في الآخر)
 // ═══════════════════════════════════════════════════════════════
-router.post('/subscription', incomeController.addSubscriptionPayment);
-router.post('/general', incomeController.addGeneralIncome);
+
+// جلب إيراد واحد بالـ ID (ده اللي كان عامل المشكلة)
+router.get('/:id', incomeController.getIncomeById);
 
 // ═══════════════════════════════════════════════════════════════
-// تعديل وحذف إيراد
+// 3. أوامر الكتابة (POST, PUT, DELETE)
 // ═══════════════════════════════════════════════════════════════
+
+// إضافة إيراد عادي
+router.post('/', incomeController.addIncome);
+
+// تحصيل اشتراك دراسة
+router.post('/subscription', incomeController.addSubscriptionPayment);
+
+// تحصيل إيراد عام
+router.post('/general', incomeController.addGeneralIncome);
+
+// تعديل وحذف إيراد
 router.put('/:id', incomeController.updateIncome);
 router.delete('/:id', incomeController.deleteIncome);
 
