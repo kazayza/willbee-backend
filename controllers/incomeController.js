@@ -413,11 +413,250 @@ const addGeneralIncome = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 7. جلب إيراد واحد بالـ ID
+// ═══════════════════════════════════════════════════════════════
+const getIncomeById = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, id);
+
+        const result = await request.query(`
+            SELECT 
+                i.ID, 
+                i.incomeDate, 
+                i.incomeByan,
+                i.userAdd,
+                i.Addtime,
+                i.useredit,
+                i.editTime,
+                c.ID_Child,
+                c.FullNameArabic as ChildName,
+                k.ID as KindId,
+                k.incomeKind as KindName,
+                k.kindGroup,
+                b.IDbranch as BranchId,
+                b.branchName,
+                d.ID as DetailId,
+                d.incomeAmount, 
+                d.ReceiptNumber,
+                d.Notes,
+                d.date_Pay,
+                d.incomeSessiontxt,
+                s.Sessions as SessionName
+            FROM tbl_income i
+            INNER JOIN tbl_incomeDetalis d ON i.ID = d.IDincome
+            LEFT JOIN tbl_Child c ON d.child_ID = c.ID_Child
+            LEFT JOIN tbl_incomeKind k ON d.incomeKind = k.ID
+            LEFT JOIN tbl_Branch b ON d.incomBranchtxt = b.IDbranch
+            LEFT JOIN tbl_Sessions s ON d.incomeSessiontxt = s.IDSession
+            WHERE i.ID = @id
+        `);
+
+        if (result.recordset.length > 0) {
+            res.status(200).json({ success: true, data: result.recordset[0] });
+        } else {
+            res.status(404).json({ success: false, message: 'الإيراد غير موجود' });
+        }
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: 'خطأ في جلب البيانات', error: err.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 8. تعديل إيراد
+// ═══════════════════════════════════════════════════════════════
+const updateIncome = async (req, res) => {
+    const { id } = req.params;
+    const {
+        amount,
+        childId,
+        branchId,
+        kindId,
+        sessionId,
+        receiptNo,
+        notes,
+        payDate,
+        useredit,
+        editTime
+    } = req.body;
+
+    const transaction = new sql.Transaction();
+
+    try {
+        await transaction.begin();
+
+        // 1️⃣ تحديث رأس الإيصال
+        const requestHead = new sql.Request(transaction);
+        requestHead.input('id', sql.Int, id);
+        requestHead.input('incomeDate', sql.Date, payDate);
+        requestHead.input('byan', sql.VarChar, notes);
+        requestHead.input('useredit', sql.VarChar, useredit);
+        requestHead.input('editTime', sql.DateTime, editTime);
+
+        await requestHead.query(`
+            UPDATE tbl_income 
+            SET incomeDate = @incomeDate,
+                incomeByan = @byan,
+                useredit = @useredit,
+                editTime = @editTime
+            WHERE ID = @id
+        `);
+
+        // 2️⃣ تحديث التفاصيل
+        const requestDetail = new sql.Request(transaction);
+        requestDetail.input('incId', sql.Int, id);
+        requestDetail.input('amount', sql.Decimal(10, 2), amount);
+        requestDetail.input('kind', sql.SmallInt, kindId);
+        requestDetail.input('branch', sql.SmallInt, branchId);
+        requestDetail.input('child', sql.Int, childId);
+        requestDetail.input('session', sql.SmallInt, sessionId);
+        requestDetail.input('receipt', sql.VarChar, receiptNo);
+        requestDetail.input('notes', sql.VarChar, notes);
+        requestDetail.input('datePay', sql.Date, payDate);
+
+        await requestDetail.query(`
+            UPDATE tbl_incomeDetalis 
+            SET incomeAmount = @amount,
+                incomeKind = @kind,
+                incomBranchtxt = @branch,
+                child_ID = @child,
+                incomeSessiontxt = @session,
+                ReceiptNumber = @receipt,
+                Notes = @notes,
+                date_Pay = @datePay
+            WHERE IDincome = @incId
+        `);
+
+        await transaction.commit();
+        res.status(200).json({ success: true, message: 'تم تعديل الإيراد بنجاح ✅' });
+
+    } catch (err) {
+        await transaction.rollback();
+        console.error(err);
+        res.status(500).json({ success: false, message: 'فشل تعديل الإيراد', error: err.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 9. حذف إيراد
+// ═══════════════════════════════════════════════════════════════
+const deleteIncome = async (req, res) => {
+    const { id } = req.params;
+
+    const transaction = new sql.Transaction();
+
+    try {
+        await transaction.begin();
+
+        // 1️⃣ حذف التفاصيل أولاً
+        const requestDetail = new sql.Request(transaction);
+        requestDetail.input('id', sql.Int, id);
+        await requestDetail.query('DELETE FROM tbl_incomeDetalis WHERE IDincome = @id');
+
+        // 2️⃣ حذف رأس الإيصال
+        const requestHead = new sql.Request(transaction);
+        requestHead.input('id', sql.Int, id);
+        const result = await requestHead.query('DELETE FROM tbl_income WHERE ID = @id');
+
+        await transaction.commit();
+
+        if (result.rowsAffected[0] > 0) {
+            res.status(200).json({ success: true, message: 'تم حذف الإيراد بنجاح 🗑️' });
+        } else {
+            res.status(404).json({ success: false, message: 'الإيراد غير موجود' });
+        }
+
+    } catch (err) {
+        await transaction.rollback();
+        console.error(err);
+        res.status(500).json({ success: false, message: 'فشل حذف الإيراد', error: err.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 10. فلترة الإيرادات
+// ═══════════════════════════════════════════════════════════════
+const filterIncomes = async (req, res) => {
+    const { sessionId, branchId, kindId, childId, fromDate, toDate } = req.query;
+
+    try {
+        let query = `
+            SELECT 
+                i.ID, 
+                i.incomeDate, 
+                c.FullNameArabic as ChildName,
+                k.incomeKind as KindName,
+                k.kindGroup,
+                b.branchName,
+                d.incomeAmount, 
+                d.ReceiptNumber,
+                d.Notes,
+                d.date_Pay,
+                s.Sessions as SessionName,
+                i.userAdd,
+                i.Addtime,
+                i.useredit,
+                i.editTime
+            FROM tbl_income i
+            INNER JOIN tbl_incomeDetalis d ON i.ID = d.IDincome
+            LEFT JOIN tbl_Child c ON d.child_ID = c.ID_Child
+            LEFT JOIN tbl_incomeKind k ON d.incomeKind = k.ID
+            LEFT JOIN tbl_Branch b ON d.incomBranchtxt = b.IDbranch
+            LEFT JOIN tbl_Sessions s ON d.incomeSessiontxt = s.IDSession
+            WHERE 1=1
+        `;
+
+        const request = new sql.Request();
+
+        if (sessionId) {
+            query += ' AND d.incomeSessiontxt = @sessionId';
+            request.input('sessionId', sql.SmallInt, sessionId);
+        }
+        if (branchId) {
+            query += ' AND d.incomBranchtxt = @branchId';
+            request.input('branchId', sql.SmallInt, branchId);
+        }
+        if (kindId) {
+            query += ' AND d.incomeKind = @kindId';
+            request.input('kindId', sql.SmallInt, kindId);
+        }
+        if (childId) {
+            query += ' AND d.child_ID = @childId';
+            request.input('childId', sql.Int, childId);
+        }
+        if (fromDate) {
+            query += ' AND i.incomeDate >= @fromDate';
+            request.input('fromDate', sql.Date, fromDate);
+        }
+        if (toDate) {
+            query += ' AND i.incomeDate <= @toDate';
+            request.input('toDate', sql.Date, toDate);
+        }
+
+        query += ' ORDER BY i.incomeDate DESC';
+
+        const result = await request.query(query);
+        res.status(200).json(result.recordset);
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'خطأ في جلب الإيرادات', error: err.message });
+    }
+};
+
 module.exports = {
     getAllIncomes,
     getIncomeKinds,
     addIncome,
     addSubscriptionPayment,      
     getChildSubscriptionDetails,
-    addGeneralIncome
+    addGeneralIncome,
+    getIncomeById,
+    updateIncome,
+    deleteIncome,
+    filterIncomes
 };
