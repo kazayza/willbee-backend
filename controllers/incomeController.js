@@ -124,7 +124,7 @@ const addSubscriptionPayment = async (req, res) => {
 
         // 1️⃣ تسجيل رأس الإيصال في tbl_income
         const requestHead = new sql.Request(transaction);
-        requestHead.input('incomeDate', sql.DateTime, payDate || addTime);
+        requestHead.input('incomeDate', sql.Date, payDate);
         requestHead.input('userAdd', sql.VarChar, userAdd);
         requestHead.input('addTime', sql.DateTime, addTime);
         requestHead.input('byan', sql.VarChar, notes || 'تحصيل اشتراك دراسة');
@@ -147,7 +147,7 @@ const addSubscriptionPayment = async (req, res) => {
         requestDetail.input('session', sql.SmallInt, sessionId);  // ⭐ العام المالي
         requestDetail.input('receipt', sql.VarChar, receiptNo);
         requestDetail.input('notes', sql.VarChar, notes);
-        requestDetail.input('datePay', sql.DateTime, payDate || addTime);
+        requestDetail.input('datePay', sql.Date, payDate );
 
         await requestDetail.query(`
             INSERT INTO tbl_incomeDetalis 
