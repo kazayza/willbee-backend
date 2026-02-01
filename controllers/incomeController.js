@@ -1,4 +1,38 @@
 const { sql } = require('../config/db');
+const { createAndPushNotification } = require('./notificationController');
+
+// ═══════════════════════════════════════════════════════════════
+// 🔔 إرسال إشعار للمديرين والمحاسبين
+// ═══════════════════════════════════════════════════════════════
+const notifyAdminsAndAccountants = async (title, message, type, relatedTo, relatedId) => {
+    try {
+        const request = new sql.Request();
+        
+        // جلب كل المديرين والمحاسبين
+        const result = await request.query(`
+            SELECT UserId FROM tbl_users 
+            WHERE Role IN ('Admin', 'AccountantUser')
+            AND isActive = 1
+        `);
+
+        // إرسال إشعار لكل واحد فيهم
+        for (const user of result.recordset) {
+            await createAndPushNotification(
+                user.UserId,
+                title,
+                message,
+                type,
+                relatedTo,
+                relatedId
+            );
+        }
+        
+        console.log(`✅ Notified ${result.recordset.length} admins/accountants`);
+    } catch (err) {
+        console.error('❌ Error notifying admins:', err);
+    }
+};
+
 
 // 1. عرض الإيرادات (مع اسم الطفل والفرع والنوع)
 const getAllIncomes = async (req, res) => {
@@ -223,6 +257,14 @@ const addSubscriptionPayment = async (req, res) => {
         }
 
         await transaction.commit();
+        // ✅ إرسال إشعار للمديرين والمحاسبين
+await notifyAdminsAndAccountants(
+    '💰 إيراد جديد',
+    `تم تحصيل ${amount} ج.م من ${childName || 'طفل'} بواسطة ${userAdd}`,
+    'Income',
+    'income',
+    newIncomeID
+);
         res.status(201).json({ 
             success: true,
             message: 'تم تحصيل المبلغ بنجاح ✅', 
@@ -396,6 +438,14 @@ const addGeneralIncome = async (req, res) => {
         `);
 
         await transaction.commit();
+        // ✅ إرسال إشعار للمديرين والمحاسبين
+await notifyAdminsAndAccountants(
+    '💰 إيراد جديد',
+    `تم تحصيل ${amount} ج.م من ${childName || 'طفل'} بواسطة ${userAdd}`,
+    'Income',
+    'income',
+    newIncomeID
+);
         res.status(201).json({ 
             success: true,
             message: 'تم تحصيل المبلغ بنجاح ✅', 
@@ -532,6 +582,14 @@ const updateIncome = async (req, res) => {
         `);
 
         await transaction.commit();
+        // ✅ إرسال إشعار للمديرين والمحاسبين
+await notifyAdminsAndAccountants(
+    '✏️ تعديل إيراد',
+    `تم تعديل إيراد رقم #${id} بواسطة ${useredit}`,
+    'Income',
+    'income',
+    parseInt(id)
+);
         res.status(200).json({ success: true, message: 'تم تعديل الإيراد بنجاح ✅' });
 
     } catch (err) {
@@ -565,6 +623,22 @@ const deleteIncome = async (req, res) => {
         await transaction.commit();
 
         if (result.rowsAffected[0] > 0) {
+            // ✅ إرسال إشعار للمديرين (الحذف للمدير بس)
+const adminRequest = new sql.Request();
+const admins = await adminRequest.query(`
+    SELECT UserId FROM tbl_users WHERE Role = 'Admin' AND isActive = 1
+`);
+
+for (const admin of admins.recordset) {
+    await createAndPushNotification(
+        admin.UserId,
+        '🗑️ حذف إيراد',
+        `تم حذف إيراد رقم #${id}`,
+        'Income',
+        'income',
+        parseInt(id)
+    );
+}
             res.status(200).json({ success: true, message: 'تم حذف الإيراد بنجاح 🗑️' });
         } else {
             res.status(404).json({ success: false, message: 'الإيراد غير موجود' });
@@ -651,6 +725,8 @@ const filterIncomes = async (req, res) => {
         res.status(500).json({ message: 'خطأ في جلب الإيرادات', error: err.message });
     }
 };
+
+
 
 module.exports = {
     getAllIncomes,
