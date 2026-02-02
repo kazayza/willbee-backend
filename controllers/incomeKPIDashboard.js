@@ -350,9 +350,50 @@ function calculateChange(current, previous) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// تصدير
+// 📋 جلب قوائم الفلاتر (الفروع والأنواع)
+// ═══════════════════════════════════════════════════════════════
+
+const getFilters = async (req, res) => {
+    try {
+        // جلب الفروع
+        const branchesResult = await new sql.Request().query(`
+            SELECT IDbranch as id, branchName as name
+            FROM tbl_Branch
+            WHERE branchName IS NOT NULL
+            ORDER BY branchName
+        `);
+
+        // جلب الأنواع
+        const kindsResult = await new sql.Request().query(`
+            SELECT ID as id, incomeKind as name
+            FROM tbl_incomeKind
+            WHERE incomeKind IS NOT NULL
+            ORDER BY incomeKind
+        `);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                branches: branchesResult.recordset || [],
+                kinds: kindsResult.recordset || []
+            }
+        });
+
+    } catch (err) {
+        console.error('Error in getFilters:', err);
+        res.status(500).json({
+            success: false,
+            message: 'حدث خطأ في جلب الفلاتر',
+            error: err.message
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// تصدير (عدّل الموجود)
 // ═══════════════════════════════════════════════════════════════
 
 module.exports = {
-    getDashboard
+    getDashboard,
+    getFilters  // 👈 أضف ده
 };

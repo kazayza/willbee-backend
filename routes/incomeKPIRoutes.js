@@ -36,6 +36,7 @@ const router = express.Router();
 const incomeKPIController = require('../controllers/incomeKPIController');
 const incomeKPIDashboard = require('../controllers/incomeKPIDashboard');
 
+
 // ═══════════════════════════════════════════════════════════════
 // 🆕 الـ Endpoint الجديد
 // ═══════════════════════════════════════════════════════════════
@@ -52,5 +53,6 @@ router.get('/trends', incomeKPIController.getTrendsAnalysis);
 router.get('/growth', incomeKPIController.getGrowthRates);
 router.get('/comparison', incomeKPIController.getDetailedComparison);
 router.get('/summary', incomeKPIController.getExecutiveSummary);
+router.get('/filters', incomeKPIDashboard.getFilters);
 
 module.exports = router;
