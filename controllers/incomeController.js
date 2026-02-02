@@ -5,18 +5,23 @@ const { createAndPushNotification } = require('./notificationController');
 // 🔔 إرسال إشعار للمديرين والمحاسبين
 // ═══════════════════════════════════════════════════════════════
 const notifyAdminsAndAccountants = async (title, message, type, relatedTo, relatedId) => {
+    console.log('🔔 Starting notification...');
+    console.log('📝 Title:', title);
+    console.log('📝 Message:', message);
+    
     try {
         const request = new sql.Request();
         
-        // جلب كل المديرين والمحاسبين
         const result = await request.query(`
             SELECT UserId FROM tbl_users 
             WHERE Role IN ('Admin', 'AccountantUser')
-            AND isActive = 1
         `);
 
-        // إرسال إشعار لكل واحد فيهم
+        console.log('👥 Users found:', result.recordset.length);
+        console.log('👥 Users:', result.recordset);
+
         for (const user of result.recordset) {
+            console.log('📤 Sending to user:', user.UserId);
             await createAndPushNotification(
                 user.UserId,
                 title,
@@ -25,11 +30,12 @@ const notifyAdminsAndAccountants = async (title, message, type, relatedTo, relat
                 relatedTo,
                 relatedId
             );
+            console.log('✅ Sent to user:', user.UserId);
         }
         
-        console.log(`✅ Notified ${result.recordset.length} admins/accountants`);
+        console.log('✅ All notifications sent!');
     } catch (err) {
-        console.error('❌ Error notifying admins:', err);
+        console.error('❌ Error in notifyAdminsAndAccountants:', err.message);
     }
 };
 
