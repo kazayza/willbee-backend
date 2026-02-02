@@ -263,6 +263,18 @@ const addSubscriptionPayment = async (req, res) => {
         }
 
         await transaction.commit();
+        // 🔍 جلب اسم الطفل للإشعار
+        let childName = 'طفل';
+        try {
+            const childRequest = new sql.Request();
+            childRequest.input('childId', sql.Int, childId);
+            const childResult = await childRequest.query(`
+                SELECT FullNameArabic FROM tbl_Child WHERE ID_Child = @childId
+            `);
+            childName = childResult.recordset[0]?.FullNameArabic || 'طفل';
+        } catch (e) {
+            console.log('Could not get child name');
+        }
         // ✅ إرسال إشعار للمديرين والمحاسبين
 await notifyAdminsAndAccountants(
     '💰 إيراد جديد',
@@ -601,6 +613,18 @@ const updateIncome = async (req, res) => {
         `);
 
         await transaction.commit();
+         // 🔍 جلب اسم الطفل للإشعار
+        let childName = 'طفل';
+        try {
+            const childRequest = new sql.Request();
+            childRequest.input('childId', sql.Int, childId);
+            const childResult = await childRequest.query(`
+                SELECT FullNameArabic FROM tbl_Child WHERE ID_Child = @childId
+            `);
+            childName = childResult.recordset[0]?.FullNameArabic || 'طفل';
+        } catch (e) {
+            console.log('Could not get child name');
+        }
         // ✅ إرسال إشعار للمديرين والمحاسبين
 await notifyAdminsAndAccountants(
     '✏️ تعديل إيراد',
@@ -629,6 +653,19 @@ const deleteIncome = async (req, res) => {
     try {
         await transaction.begin();
 
+        // 🔍 جلب بيانات الإيراد قبل الحذف (للإشعار)
+        const getDataRequest = new sql.Request(transaction);
+        getDataRequest.input('id', sql.Int, id);
+        const incomeData = await getDataRequest.query(`
+            SELECT d.child_ID, d.incomeAmount, c.FullNameArabic
+            FROM tbl_incomeDetalis d
+            LEFT JOIN tbl_Child c ON d.child_ID = c.ID_Child
+            WHERE d.IDincome = @id
+        `);
+        
+        const childName = incomeData.recordset[0]?.FullNameArabic || 'طفل';
+        const amount = incomeData.recordset[0]?.incomeAmount || 0;
+
         // 1️⃣ حذف التفاصيل أولاً
         const requestDetail = new sql.Request(transaction);
         requestDetail.input('id', sql.Int, id);
@@ -641,23 +678,24 @@ const deleteIncome = async (req, res) => {
 
         await transaction.commit();
 
-        if (result.rowsAffected[0] > 0) {
-            // ✅ إرسال إشعار للمديرين (الحذف للمدير بس)
-const adminRequest = new sql.Request();
-const admins = await adminRequest.query(`
-    SELECT UserId FROM tbl_users WHERE Role = 'Admin' AND isActive = 1
-`);
+       if (result.rowsAffected[0] > 0) {
+            // ✅ إرسال إشعار للمديرين فقط
+            const adminRequest = new sql.Request();
+            const admins = await adminRequest.query(`
+                SELECT UserId FROM tbl_users WHERE Role = 'Admin'
+            `);
 
-for (const admin of admins.recordset) {
-    await createAndPushNotification(
-        admin.UserId,
-        '🗑️ حذف إيراد',
-        `تم حذف إيراد رقم #${id}`,
-        'Income',
-        'income',
-        parseInt(id)
-    );
-}
+            for (const admin of admins.recordset) {
+                await createAndPushNotification(
+                    admin.UserId,
+                    '🗑️ حذف إيراد',
+                    `تم حذف إيراد "${childName}" بمبلغ ${amount} ج.م`,
+                    'Income',
+                    'income',
+                    parseInt(id)
+                );
+            }
+
             res.status(200).json({ success: true, message: 'تم حذف الإيراد بنجاح 🗑️' });
         } else {
             res.status(404).json({ success: false, message: 'الإيراد غير موجود' });
