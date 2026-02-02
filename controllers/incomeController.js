@@ -438,10 +438,23 @@ const addGeneralIncome = async (req, res) => {
         `);
 
         await transaction.commit();
-        // ✅ إرسال إشعار للمديرين والمحاسبين
+        // 🔍 جلب اسم الطفل للإشعار
+let childName = 'طفل';
+try {
+    const childRequest = new sql.Request();
+    childRequest.input('childId', sql.Int, childId);
+    const childResult = await childRequest.query(`
+        SELECT FullNameArabic FROM tbl_Child WHERE ID_Child = @childId
+    `);
+    childName = childResult.recordset[0]?.FullNameArabic || 'طفل';
+} catch (e) {
+    console.log('Could not get child name');
+}
+
+// ✅ إرسال إشعار
 await notifyAdminsAndAccountants(
     '💰 إيراد جديد',
-    `تم تحصيل ${amount} ج.م من ${childName || 'طفل'} بواسطة ${userAdd}`,
+    `تم تحصيل ${amount} ج.م من "${childName}" بواسطة ${userAdd}`,
     'Income',
     'income',
     newIncomeID
