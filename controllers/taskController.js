@@ -105,15 +105,31 @@ const createTask = async (req, res) => {
         const userId = await getUserIdByEmpId(assignedTo);
         
         if (userId) {
-            await createAndPushNotification(
-                userId,
-                '📋 مهمة جديدة', 
-                `تم تكليفك بمهمة: ${title}`, 
-                'Task',
-                'Task',
-                taskId
-            );
-        }
+    // جلب اسم المُرسل
+    const senderRequest = new sql.Request();
+    senderRequest.input('senderId', sql.Int, assignedBy);
+    
+    const senderResult = await senderRequest.query(`
+        SELECT FullName FROM tbl_users WHERE UserId = @senderId
+    `);
+    
+    const senderName = senderResult.recordset.length > 0 
+        ? senderResult.recordset[0].FullName 
+        : '';
+    
+    const notificationBody = senderName 
+        ? `تم تكليفك بمهمة: ${title} من: ${senderName}`
+        : `تم تكليفك بمهمة: ${title}`;
+    
+    await createAndPushNotification(
+        userId,
+        '📋 مهمة جديدة', 
+        notificationBody, 
+        'Task',
+        'Task',
+        taskId
+    );
+}
 
         res.status(201).json({ message: 'تم إسناد المهمة بنجاح ✅', taskId });
 
