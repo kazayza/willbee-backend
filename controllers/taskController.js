@@ -406,7 +406,7 @@ const addTaskReply = async (req, res) => {
         const result = await request.query(`
             INSERT INTO tbl_TaskReplies (TaskID, UserID, Message, CreatedAt, IsDeleted)
             OUTPUT INSERTED.ReplyID
-            VALUES (@taskId, @userId, @message, GETDATE(), 0)
+            VALUES (@taskId, @userId, @message, GETUTCDATE(), 0)
         `);
 
         const replyId = result.recordset[0].ReplyID;
