@@ -19,12 +19,14 @@ router.post('/', createTask);
 // GET /api/tasks/lead/:leadId/count
 router.get('/lead/:leadId/count', getLeadTasksCount);
 
+// جلب المهام التي أرسلتها
+router.get('/sent-by/:userId', getTasksSentByMe);
+
 // عرض مهام موظف معيّن (مع فلتر status اختياري)
 // GET /api/tasks/:empId?status=Pending
 router.get('/:empId', getMyTasks);
 
-// جلب المهام التي أرسلتها
-router.get('/sent-by/:userId', getTasksSentByMe);
+
 
 // تحديث حالة مهمة
 // PUT /api/tasks/:taskId/status
