@@ -142,6 +142,7 @@ const getMyTasks = async (req, res) => {
                 t.DueDate,
                 t.Notes,
                 t.CreatedAt,
+                t.AssignedBy,
                 t.userAdd,
                 t.Addtime,
                 t.useredit,
@@ -149,7 +150,7 @@ const getMyTasks = async (req, res) => {
                 cu.FullName       AS CustomerName,
                 ch.FullNameArabic AS ChildName,
                 l.FullName        AS LeadName,
-                e.empName         AS AssignedByName
+                u.FullName        AS AssignedByName
             FROM tbl_Tasks t
             LEFT JOIN tbl_Customers cu 
                 ON t.CustomerID = cu.CustomerID
@@ -158,8 +159,8 @@ const getMyTasks = async (req, res) => {
             LEFT JOIN tbl_Leads l 
                 ON t.RelatedTo = 'Lead' 
                AND t.RelatedID = l.LeadID
-            LEFT JOIN tbl_empolyee e
-                ON t.AssignedBy = e.ID
+            LEFT JOIN tbl_users u
+                ON t.AssignedBy = u.UserId
             WHERE t.AssignedTo = @id
               AND t.IsDeleted = 0
         `;
