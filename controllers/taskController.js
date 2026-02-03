@@ -382,11 +382,203 @@ const getTasksSentByMe = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 💬 إضافة رد على مهمة
+// ═══════════════════════════════════════════════════════════════════════════
+const addTaskReply = async (req, res) => {
+    const { taskId } = req.params;
+    const { userId, message } = req.body;
+
+    if (!message || !message.trim()) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'الرسالة مطلوبة' 
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('taskId', sql.Int, taskId);
+        request.input('userId', sql.Int, userId);
+        request.input('message', sql.NVarChar, message.trim());
+
+        // 1️⃣ إضافة الرد
+        const result = await request.query(`
+            INSERT INTO tbl_TaskReplies (TaskID, UserID, Message, CreatedAt, IsDeleted)
+            OUTPUT INSERTED.ReplyID
+            VALUES (@taskId, @userId, @message, GETDATE(), 0)
+        `);
+
+        const replyId = result.recordset[0].ReplyID;
+
+        // 2️⃣ جلب بيانات المهمة والمُرسل
+        const taskRequest = new sql.Request();
+        taskRequest.input('taskId', sql.Int, taskId);
+
+        const taskResult = await taskRequest.query(`
+            SELECT t.Title, t.AssignedBy, t.AssignedTo, u.FullName as SenderName
+            FROM tbl_Tasks t
+            LEFT JOIN tbl_users u ON u.UserId = @userId
+            WHERE t.TaskID = @taskId
+        `);
+
+        if (taskResult.recordset.length > 0) {
+            const task = taskResult.recordset[0];
+            
+            // 3️⃣ جلب اسم الراد
+            const replyUserRequest = new sql.Request();
+            replyUserRequest.input('userId', sql.Int, userId);
+            
+            const replyUserResult = await replyUserRequest.query(`
+                SELECT FullName FROM tbl_users WHERE UserId = @userId
+            `);
+            
+            const replyUserName = replyUserResult.recordset.length > 0 
+                ? replyUserResult.recordset[0].FullName 
+                : 'موظف';
+
+            // 4️⃣ تحديد مين يستلم الإشعار
+            let notifyUserId = null;
+            
+            // لو الراد هو المُكلف بالمهمة، نبعت للمُرسل
+            const assignedToUserId = await getUserIdByEmpId(task.AssignedTo);
+            
+            if (userId === assignedToUserId) {
+                // الموظف رد، نبعت للمُرسل
+                notifyUserId = task.AssignedBy;
+            } else if (userId === task.AssignedBy) {
+                // المُرسل رد، نبعت للموظف
+                notifyUserId = assignedToUserId;
+            }
+
+            // 5️⃣ إرسال إشعار
+            if (notifyUserId) {
+                await createAndPushNotification(
+                    notifyUserId,
+                    '💬 رد جديد على مهمة',
+                    `${replyUserName}: ${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`,
+                    'TaskReply',
+                    'Task',
+                    parseInt(taskId)
+                );
+            }
+        }
+
+        res.status(201).json({ 
+            success: true, 
+            message: 'تم إرسال الرد بنجاح ✅',
+            replyId: replyId
+        });
+
+    } catch (err) {
+        console.error('addTaskReply error:', err);
+        res.status(500).json({ 
+            success: false, 
+            message: 'خطأ في إرسال الرد', 
+            error: err.message 
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 💬 جلب ردود مهمة معينة
+// ═══════════════════════════════════════════════════════════════════════════
+const getTaskReplies = async (req, res) => {
+    const { taskId } = req.params;
+
+    try {
+        const request = new sql.Request();
+        request.input('taskId', sql.Int, taskId);
+
+        const result = await request.query(`
+            SELECT 
+                r.ReplyID,
+                r.TaskID,
+                r.UserID,
+                r.Message,
+                r.CreatedAt,
+                u.FullName as UserName
+            FROM tbl_TaskReplies r
+            LEFT JOIN tbl_users u ON r.UserID = u.UserId
+            WHERE r.TaskID = @taskId AND r.IsDeleted = 0
+            ORDER BY r.CreatedAt ASC
+        `);
+
+        res.status(200).json(result.recordset);
+
+    } catch (err) {
+        console.error('getTaskReplies error:', err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ✅ تعليم المهمة كمقروءة
+// ═══════════════════════════════════════════════════════════════════════════
+const markTaskAsRead = async (req, res) => {
+    const { taskId } = req.params;
+    const { userId } = req.body;
+
+    try {
+        const request = new sql.Request();
+        request.input('taskId', sql.Int, taskId);
+        request.input('userId', sql.Int, userId);
+
+        // تحديث حالة القراءة
+        await request.query(`
+            UPDATE tbl_Tasks 
+            SET IsRead = 1, ReadAt = GETDATE(), ReadBy = @userId
+            WHERE TaskID = @taskId
+        `);
+
+        // جلب بيانات المهمة
+        const taskResult = await request.query(`
+            SELECT t.Title, t.AssignedBy, u.FullName as ReaderName
+            FROM tbl_Tasks t
+            LEFT JOIN tbl_users u ON u.UserId = @userId
+            WHERE t.TaskID = @taskId
+        `);
+
+        if (taskResult.recordset.length > 0) {
+            const task = taskResult.recordset[0];
+            const readerName = task.ReaderName || 'الموظف';
+
+            // إرسال إشعار للمُرسل
+            if (task.AssignedBy) {
+                await createAndPushNotification(
+                    task.AssignedBy,
+                    '👁️ تم قراءة المهمة',
+                    `${readerName} شاف المهمة: ${task.Title}`,
+                    'TaskRead',
+                    'Task',
+                    parseInt(taskId)
+                );
+            }
+        }
+
+        res.status(200).json({ 
+            success: true, 
+            message: 'تم تعليم المهمة كمقروءة ✅' 
+        });
+
+    } catch (err) {
+        console.error('markTaskAsRead error:', err);
+        res.status(500).json({ 
+            success: false, 
+            message: 'خطأ في تحديث حالة القراءة', 
+            error: err.message 
+        });
+    }
+};
+
 module.exports = {
     createTask,
     getMyTasks,
     getTasksSentByMe,
     updateTaskStatus,
     deleteTask,
-    getLeadTasksCount
+    getLeadTasksCount,
+    addTaskReply,      // ✅ جديد
+    getTaskReplies,    // ✅ جديد
+    markTaskAsRead     // ✅ جديد
 };
