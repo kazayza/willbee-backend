@@ -414,6 +414,7 @@ const addTaskReply = async (req, res) => {
         // 2️⃣ جلب بيانات المهمة والمُرسل
         const taskRequest = new sql.Request();
         taskRequest.input('taskId', sql.Int, taskId);
+        taskRequest.input('userId', sql.Int, userId);
 
         const taskResult = await taskRequest.query(`
             SELECT t.Title, t.AssignedBy, t.AssignedTo, u.FullName as SenderName
