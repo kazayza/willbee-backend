@@ -5,6 +5,7 @@ const router = express.Router();
 const { 
     createTask, 
     getMyTasks, 
+     getTasksSentByMe,
     updateTaskStatus, 
     deleteTask,
     getLeadTasksCount  
