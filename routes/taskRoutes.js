@@ -23,6 +23,9 @@ router.get('/lead/:leadId/count', getLeadTasksCount);
 // GET /api/tasks/:empId?status=Pending
 router.get('/:empId', getMyTasks);
 
+// جلب المهام التي أرسلتها
+router.get('/sent-by/:userId', getTasksSentByMe);
+
 // تحديث حالة مهمة
 // PUT /api/tasks/:taskId/status
 router.put('/:taskId/status', updateTaskStatus);

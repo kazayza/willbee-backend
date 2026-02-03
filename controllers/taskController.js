@@ -308,9 +308,68 @@ const getLeadTasksCount = async (req, res) => {
     }
 };
 
+// ✅ جلب المهام التي أرسلتها (للأدمن أو أي يوزر)
+const getTasksSentByMe = async (req, res) => {
+    const { userId } = req.params;
+    const { status } = req.query;
+
+    try {
+        const request = new sql.Request();
+        request.input('userId', sql.Int, userId);
+
+        let query = `
+            SELECT 
+                t.TaskID,
+                t.Title,
+                t.Description,
+                t.Priority,
+                t.Status,
+                t.DueDate,
+                t.Notes,
+                t.CreatedAt,
+                t.AssignedBy,
+                t.userAdd,
+                t.Addtime,
+                t.useredit,
+                t.editTime,
+                cu.FullName       AS CustomerName,
+                ch.FullNameArabic AS ChildName,
+                l.FullName        AS LeadName,
+                e.empName         AS AssignedToName
+            FROM tbl_Tasks t
+            LEFT JOIN tbl_Customers cu 
+                ON t.CustomerID = cu.CustomerID
+            LEFT JOIN tbl_Child ch 
+                ON cu.ChildID = ch.ID_Child
+            LEFT JOIN tbl_Leads l 
+                ON t.RelatedTo = 'Lead' 
+               AND t.RelatedID = l.LeadID
+            LEFT JOIN tbl_empolyee e
+                ON t.AssignedTo = e.ID
+            WHERE t.AssignedBy = @userId
+              AND t.IsDeleted = 0
+        `;
+
+        if (status) {
+            request.input('stat', sql.NVarChar, status);
+            query += ' AND t.Status = @stat';
+        }
+
+        query += ' ORDER BY t.CreatedAt DESC';
+
+        const result = await request.query(query);
+        res.status(200).json(result.recordset);
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
 module.exports = {
     createTask,
     getMyTasks,
+    getTasksSentByMe,
     updateTaskStatus,
     deleteTask,
     getLeadTasksCount
