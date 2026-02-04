@@ -1,12 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const attendanceController = require('../controllers/attendanceController');
+const attendanceController = require('../controllers/attendanceController'); // تأكد إن ده اسم ملف الكنترولر الصح
 
-// حفظ الغياب (POST)
-router.post('/', attendanceController.saveAttendance);
+// 1. حفظ الغياب
+// استخدمنا saveAbsenceList عشان ده الاسم اللي أنت مصدره
+router.post('/save', attendanceController.saveAbsenceList); 
 
-// عرض الغياب بتاريخ معين (GET)
-// مثال الاستخدام: /api/attendance?date=2025-01-16
-router.get('/', attendanceController.getAttendanceByDate);
+// 2. عرض الغياب
+// استخدمنا getAbsenceReport عشان ده الاسم اللي أنت مصدره
+router.get('/report', attendanceController.getAbsenceReport);
 
 module.exports = router;
