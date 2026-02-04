@@ -3,41 +3,55 @@ const { sql } = require('../config/db');
 // 1. دالة لجلب كل الأطفال (موجودة من قبل)
 // 1. جلب كل الأطفال (مع Addtime و Status)
 // 1. جلب كل الأطفال (مع فلترة السنة المالية)
+//1. تعديل لاضافة الفصول
 const getAllChildren = async (req, res) => {
-    const { sessionId } = req.query; // 👈 استقبال السنة المالية من الـ URL
+    const { sessionId } = req.query; 
 
     try {
         let query = '';
         
         if (sessionId) {
-            // لو في فلتر سنة مالية - جيب الأطفال اللي عندهم اشتراك في السنة دي
+            // الحالة الأولى: لو فيه فلتر بالسنة المالية
+            // بنجيب الأطفال المشتركين في السنة دي + بيانات فصلهم الحالي + اسم الفرع
             query = `
                 SELECT DISTINCT
                     c.ID_Child, 
                     c.FullNameArabic, 
                     c.NationalID,
-                    c.Age, 
-                    c.Branch,
+                    -- بنحسب العمر أوتوماتيك بدقة
+                    FLOOR(DATEDIFF(DAY, c.birthDate, GETDATE()) / 365.25) AS CalculatedAge,
+                    c.Branch,       -- رقم الفرع (للكود)
+                    b.branchName,   -- اسم الفرع (للعرض)
                     c.Status,
-                    c.Addtime
+                    c.Addtime,
+                    v.ClassName,    -- اسم الفصل (A, B, C...)
+                    v.Class_ID      -- رقم الفصل (المميز)
                 FROM tbl_Child c
                 INNER JOIN tbl_FinanceChild f ON c.ID_Child = f.Child_Id
+                LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+                LEFT JOIN vw_ChildrenCurrentClass v ON c.ID_Child = v.ID_Child
                 WHERE f.SessionID = ${sessionId}
                 ORDER BY c.ID_Child DESC
             `;
         } else {
-            // لو مفيش فلتر - جيب كل الأطفال
+            // الحالة الثانية: لو مفيش فلتر (كل الأطفال)
             query = `
                 SELECT 
-                    ID_Child, 
-                    FullNameArabic, 
-                    NationalID,
-                    Age, 
-                    Branch,
-                    Status,
-                    Addtime
-                FROM tbl_Child 
-                ORDER BY ID_Child DESC
+                    c.ID_Child, 
+                    c.FullNameArabic, 
+                    c.NationalID,
+                    -- بنحسب العمر أوتوماتيك بدقة
+                    FLOOR(DATEDIFF(DAY, c.birthDate, GETDATE()) / 365.25) AS CalculatedAge,
+                    c.Branch,       -- رقم الفرع
+                    b.branchName,   -- اسم الفرع
+                    c.Status,
+                    c.Addtime,
+                    v.ClassName,    -- اسم الفصل
+                    v.Class_ID      -- رقم الفصل
+                FROM tbl_Child c
+                LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+                LEFT JOIN vw_ChildrenCurrentClass v ON c.ID_Child = v.ID_Child
+                ORDER BY c.ID_Child DESC
             `;
         }
 
@@ -74,6 +88,7 @@ const getChildById = async (req, res) => {
 
 // 3. دالة إضافة طفل جديد
 // 3. إضافة طفل جديد (تحديث شامل)
+// 3. إضافة طفل جديد (مع حساب العمر + منع تكرار الرقم القومي)
 const createNewChild = async (req, res) => {
     const { 
         FullNameArabic, FullNameEnglish, NationalID, birthDate, Branch,
@@ -84,14 +99,50 @@ const createNewChild = async (req, res) => {
 
     try {
         const request = new sql.Request();
+        
+        // ============================================
+        // 1️⃣ الخطوة الجديدة: التحقق من الرقم القومي
+        // ============================================
+        request.input('checkNid', sql.Decimal(14, 0), NationalID);
+        
+        const checkResult = await request.query(`
+            SELECT ID_Child, FullNameArabic 
+            FROM tbl_Child 
+            WHERE NationalID = @checkNid
+        `);
 
-        // ربط المتغيرات
+        // لو لقينا نتيجة، نوقف فوراً ونرجع رسالة خطأ
+        if (checkResult.recordset.length > 0) {
+            return res.status(409).json({ 
+                message: 'عفواً، هذا الرقم القومي مسجل مسبقاً لطفل آخر ⚠️',
+                existingChild: checkResult.recordset[0].FullNameArabic // بنرجع اسم الطفل الموجود عشان التوضيح
+            });
+        }
+
+        // ============================================
+        // 2️⃣ حساب العمر (زي ما اتفقنا)
+        // ============================================
+        const birthDateObj = new Date(birthDate);
+        const today = new Date();
+        let calculatedAge = today.getFullYear() - birthDateObj.getFullYear();
+        const m = today.getMonth() - birthDateObj.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDateObj.getDate())) {
+            calculatedAge--;
+        }
+        calculatedAge = calculatedAge < 0 ? 0 : calculatedAge;
+
+        // ============================================
+        // 3️⃣ عملية الحفظ (Insert)
+        // ============================================
+        
+        // تعريف باقي المتغيرات
         request.input('nameAr', sql.NVarChar, FullNameArabic);
         request.input('nameEn', sql.NVarChar, FullNameEnglish);
         request.input('nid', sql.Decimal(14, 0), NationalID);
         request.input('bdate', sql.DateTime, birthDate);
+        request.input('age', sql.SmallInt, calculatedAge);
         request.input('branch', sql.SmallInt, Branch);
-        request.input('status', sql.Bit, 1); // Active by default
+        request.input('status', sql.Bit, 1); 
         
         request.input('fName', sql.VarChar, FatherName);
         request.input('fMob', sql.VarChar, FatherMobile1);
@@ -109,21 +160,20 @@ const createNewChild = async (req, res) => {
         request.input('diapers', sql.Bit, WearDiapers);
         request.input('user', sql.VarChar, userAdd);
 
-        // جملة الاستعلام العملاقة
         await request.query(`
             INSERT INTO tbl_Child 
-            (FullNameArabic, FullNameEnglish, NationalID, birthDate, Branch, Status,
+            (FullNameArabic, FullNameEnglish, NationalID, birthDate, Age, Branch, Status,
              FatherName, FatherMobile1, MotherName, MotherMobile1, ResidenceAddress,
              EmergencyName1, EmergencyNumber1, Notes, Allergies,
              DidFullTime, DoSports, WearDiapers, userAdd, Addtime)
             VALUES 
-            (@nameAr, @nameEn, @nid, @bdate, @branch, @status,
+            (@nameAr, @nameEn, @nid, @bdate, @age, @branch, @status,
              @fName, @fMob, @mName, @mMob, @addr,
              @eName, @eMob, @notes, @allergies,
              @fullTime, @sports, @diapers, @user, GETDATE())
         `);
 
-        res.status(201).json({ message: 'تم حفظ ملف الطفل كاملاً بنجاح ✅' });
+        res.status(201).json({ message: 'تم حفظ ملف الطفل الجديد بنجاح ✅' });
 
     } catch (err) {
         console.error(err);

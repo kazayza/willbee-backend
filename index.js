@@ -64,6 +64,7 @@ app.use('/api/analytics', require('./routes/analyticsRoutes'));
 app.use('/api/dashboard-crm', require('./routes/dashboardCRMRoutes'));
 app.use('/api/lead-statuses', require('./routes/leadStatusRoutes'));
 app.use('/api/income-kpi', require('./routes/incomeKPIRoutes'));
+app.use('/api/classes', require('./routes/classRoutes'));
 
 
 
