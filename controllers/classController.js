@@ -561,6 +561,328 @@ const getClassById = async (req, res) => {
     }
 };
 
+// ================================================================
+// 9. جلب أطفال الفصل (المسكنين حالياً)
+// ================================================================
+const getClassChildren = async (req, res) => {
+    const { classId } = req.params;
+
+    if (!classId || isNaN(classId)) {
+        return res.status(400).json({
+            success: false,
+            message: 'رقم الفصل غير صحيح'
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('classId', sql.Int, parseInt(classId));
+
+        // جلب الأطفال المسكنين حالياً (LeaveDate IS NULL)
+        const result = await request.query(`
+            SELECT 
+                H.ID as HistoryId,
+                H.Child_ID,
+                H.JoinDate,
+                H.Notes as AssignNotes,
+                C.FullNameArabic,
+                C.Age,
+                C.birthDate,
+                C.Gender
+            FROM tbl_ChildClassHistory H
+            INNER JOIN tbl_Child C ON H.Child_ID = C.ID_Child
+            WHERE H.Class_ID = @classId 
+            AND H.LeaveDate IS NULL
+            ORDER BY H.JoinDate DESC
+        `);
+
+        res.status(200).json({
+            success: true,
+            count: result.recordset.length,
+            data: result.recordset
+        });
+
+    } catch (err) {
+        console.error('getClassChildren Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب بيانات الأطفال',
+            error: err.message
+        });
+    }
+};
+
+// ================================================================
+// 10. جلب سجل الفصل (الأطفال السابقين)
+// ================================================================
+const getClassHistory = async (req, res) => {
+    const { classId } = req.params;
+
+    if (!classId || isNaN(classId)) {
+        return res.status(400).json({
+            success: false,
+            message: 'رقم الفصل غير صحيح'
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('classId', sql.Int, parseInt(classId));
+
+        // جلب الأطفال اللي خرجوا (LeaveDate IS NOT NULL)
+        const result = await request.query(`
+            SELECT 
+                H.ID as HistoryId,
+                H.Child_ID,
+                H.JoinDate,
+                H.LeaveDate,
+                H.Notes as AssignNotes,
+                C.FullNameArabic,
+                C.Age
+            FROM tbl_ChildClassHistory H
+            INNER JOIN tbl_Child C ON H.Child_ID = C.ID_Child
+            WHERE H.Class_ID = @classId 
+            AND H.LeaveDate IS NOT NULL
+            ORDER BY H.LeaveDate DESC
+        `);
+
+        res.status(200).json({
+            success: true,
+            count: result.recordset.length,
+            data: result.recordset
+        });
+
+    } catch (err) {
+        console.error('getClassHistory Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب السجل',
+            error: err.message
+        });
+    }
+};
+
+// ================================================================
+// 11. إخراج طفل من الفصل (بدون نقل)
+// ================================================================
+const removeStudentFromClass = async (req, res) => {
+    const { historyId } = req.params;
+    const { userEdit } = req.body;
+
+    if (!historyId || isNaN(historyId)) {
+        return res.status(400).json({
+            success: false,
+            message: 'رقم السجل غير صحيح'
+        });
+    }
+
+    const egyptTime = getEgyptTime();
+
+    try {
+        const request = new sql.Request();
+        request.input('historyId', sql.Int, parseInt(historyId));
+        request.input('egyptTime', sql.DateTime, egyptTime);
+        request.input('user', sql.VarChar, userEdit || 'System');
+
+        // التأكد من وجود السجل وأنه مفتوح
+        const checkResult = await request.query(`
+            SELECT H.ID, H.Child_ID, C.FullNameArabic
+            FROM tbl_ChildClassHistory H
+            INNER JOIN tbl_Child C ON H.Child_ID = C.ID_Child
+            WHERE H.ID = @historyId AND H.LeaveDate IS NULL
+        `);
+
+        if (checkResult.recordset.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'السجل غير موجود أو الطفل خرج بالفعل'
+            });
+        }
+
+        const childName = checkResult.recordset[0].FullNameArabic;
+
+        // إغلاق السجل (إخراج الطفل)
+        await request.query(`
+            UPDATE tbl_ChildClassHistory
+            SET LeaveDate = @egyptTime, useredit = @user, editTime = @egyptTime
+            WHERE ID = @historyId
+        `);
+
+        res.status(200).json({
+            success: true,
+            message: `تم إخراج ${childName} من الفصل بنجاح`
+        });
+
+    } catch (err) {
+        console.error('removeStudentFromClass Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في إخراج الطفل',
+            error: err.message
+        });
+    }
+};
+
+// ================================================================
+// 12. نقل طفل لفصل آخر
+// ================================================================
+const transferStudent = async (req, res) => {
+    const { childId, fromClassId, toClassId, notes, userAdd } = req.body;
+
+    // Validation
+    if (!childId || !fromClassId || !toClassId) {
+        return res.status(400).json({
+            success: false,
+            message: 'جميع البيانات مطلوبة (childId, fromClassId, toClassId)'
+        });
+    }
+
+    if (fromClassId === toClassId) {
+        return res.status(400).json({
+            success: false,
+            message: 'الفصل المنقول إليه هو نفس الفصل الحالي'
+        });
+    }
+
+    const transaction = new sql.Transaction();
+    const egyptTime = getEgyptTime();
+
+    try {
+        await transaction.begin();
+        const request = new sql.Request(transaction);
+
+        request.input('childId', sql.Int, parseInt(childId));
+        request.input('fromClassId', sql.Int, parseInt(fromClassId));
+        request.input('toClassId', sql.Int, parseInt(toClassId));
+        request.input('egyptTime', sql.DateTime, egyptTime);
+        request.input('notes', sql.NVarChar, notes || 'نقل من فصل لآخر');
+        request.input('user', sql.VarChar, userAdd || 'System');
+
+        // 1. التأكد من تطابق الفرع
+        const branchCheck = await request.query(`
+            SELECT 
+                (SELECT BranchID FROM tbl_Classroom WHERE Class_ID = @fromClassId) as FromBranch,
+                (SELECT BranchID FROM tbl_Classroom WHERE Class_ID = @toClassId) as ToBranch
+        `);
+
+        if (branchCheck.recordset[0].FromBranch !== branchCheck.recordset[0].ToBranch) {
+            await transaction.rollback();
+            return res.status(400).json({
+                success: false,
+                message: 'لا يمكن النقل بين فروع مختلفة'
+            });
+        }
+
+        // 2. التأكد من سعة الفصل الجديد
+        const capacityCheck = await request.query(`
+            SELECT 
+                (C.Capacity - (SELECT COUNT(*) FROM tbl_ChildClassHistory WHERE Class_ID = @toClassId AND LeaveDate IS NULL)) as Remaining
+            FROM tbl_Classroom C WHERE C.Class_ID = @toClassId
+        `);
+
+        if (!capacityCheck.recordset[0] || capacityCheck.recordset[0].Remaining <= 0) {
+            await transaction.rollback();
+            return res.status(400).json({
+                success: false,
+                message: 'الفصل المنقول إليه ممتلئ'
+            });
+        }
+
+        // 3. إغلاق السجل القديم
+        const closeResult = await request.query(`
+            UPDATE tbl_ChildClassHistory
+            SET LeaveDate = @egyptTime, useredit = @user, editTime = @egyptTime
+            WHERE Child_ID = @childId AND Class_ID = @fromClassId AND LeaveDate IS NULL
+        `);
+
+        if (closeResult.rowsAffected[0] === 0) {
+            await transaction.rollback();
+            return res.status(404).json({
+                success: false,
+                message: 'الطفل غير موجود في الفصل المحدد'
+            });
+        }
+
+        // 4. فتح سجل جديد في الفصل الجديد
+        await request.query(`
+            INSERT INTO tbl_ChildClassHistory 
+            (Child_ID, Class_ID, JoinDate, Notes, userAdd, Addtime)
+            VALUES 
+            (@childId, @toClassId, @egyptTime, @notes, @user, @egyptTime)
+        `);
+
+        await transaction.commit();
+
+        res.status(200).json({
+            success: true,
+            message: 'تم نقل الطفل بنجاح'
+        });
+
+    } catch (err) {
+        try {
+            await transaction.rollback();
+        } catch (rollbackErr) {
+            console.error('Rollback Error:', rollbackErr);
+        }
+
+        console.error('transferStudent Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في نقل الطفل',
+            error: err.message
+        });
+    }
+};
+
+// ================================================================
+// 13. جلب الفصول المتاحة للنقل (نفس الفرع - فيها أماكن)
+// ================================================================
+const getAvailableClassesForTransfer = async (req, res) => {
+    const { classId } = req.params;
+
+    if (!classId || isNaN(classId)) {
+        return res.status(400).json({
+            success: false,
+            message: 'رقم الفصل غير صحيح'
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('classId', sql.Int, parseInt(classId));
+
+        // جلب الفصول في نفس الفرع (ماعدا الفصل الحالي) وفيها أماكن
+        const result = await request.query(`
+            SELECT 
+                C.Class_ID,
+                C.ClassName,
+                C.Capacity,
+                (SELECT COUNT(*) FROM tbl_ChildClassHistory WHERE Class_ID = C.Class_ID AND LeaveDate IS NULL) as CurrentCount,
+                (C.Capacity - (SELECT COUNT(*) FROM tbl_ChildClassHistory WHERE Class_ID = C.Class_ID AND LeaveDate IS NULL)) as RemainingSeats
+            FROM tbl_Classroom C
+            WHERE C.BranchID = (SELECT BranchID FROM tbl_Classroom WHERE Class_ID = @classId)
+            AND C.Class_ID != @classId
+            AND C.IsActive = 1
+            AND (C.Capacity - (SELECT COUNT(*) FROM tbl_ChildClassHistory WHERE Class_ID = C.Class_ID AND LeaveDate IS NULL)) > 0
+            ORDER BY C.ClassName
+        `);
+
+        res.status(200).json({
+            success: true,
+            count: result.recordset.length,
+            data: result.recordset
+        });
+
+    } catch (err) {
+        console.error('getAvailableClassesForTransfer Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب الفصول',
+            error: err.message
+        });
+    }
+};
+
 module.exports = {
     getClassesDashboard,
     assignStudent,
@@ -569,5 +891,10 @@ module.exports = {
     getUnassignedChildren,
     addClass,
     updateClass,
-    getClassById
+    getClassById,
+    getClassChildren,
+    getClassHistory,
+    removeStudentFromClass,
+    transferStudent,
+    getAvailableClassesForTransfer
 };
