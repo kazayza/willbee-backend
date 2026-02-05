@@ -1,28 +1,52 @@
 const { sql } = require('../config/db');
+const moment = require('moment-timezone');
 
-// 1. لوحة تحكم الفصول (أهم دالة للعرض)
+// ========== دالة مساعدة لتوقيت مصر ==========
+const getEgyptTime = () => {
+    return moment().tz('Africa/Cairo').format('YYYY-MM-DD HH:mm:ss');
+};
+
+// ========== دالة مساعدة للـ Validation ==========
+const validateRequired = (fields, res) => {
+    for (const [key, value] of Object.entries(fields)) {
+        if (value === undefined || value === null || value === '') {
+            res.status(400).json({ 
+                success: false,
+                message: `الحقل "${key}" مطلوب ❌` 
+            });
+            return false;
+        }
+    }
+    return true;
+};
+
+// ================================================================
+// 1. لوحة تحكم الفصول (Dashboard)
+// ================================================================
 const getClassesDashboard = async (req, res) => {
-    const { branchId } = req.query; // بنستقبل رقم الفرع
+    const { branchId } = req.query;
 
-    if (!branchId) {
-        return res.status(400).json({ message: 'رقم الفرع مطلوب (branchId)' });
+    // Validation
+    if (!branchId || isNaN(branchId)) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'رقم الفرع مطلوب ويجب أن يكون رقم صحيح' 
+        });
     }
 
     try {
-        // الاستعلام ده بيجيب إحصائيات الفصل + أسماء المدرسين في جملة واحدة
         const query = `
             SELECT 
                 C.Class_ID,
                 C.ClassName,
                 C.Capacity,
                 C.Notes,
+                C.IsActive,
                 
-                -- 1. حساب عدد الطلاب الحاليين (اللي لسه ماخرجوش)
                 (SELECT COUNT(*) 
                  FROM tbl_ChildClassHistory H 
                  WHERE H.Class_ID = C.Class_ID AND H.LeaveDate IS NULL) AS CurrentStudentCount,
 
-                -- 2. تجميع أسماء المدرسين الحاليين (المفعلين) مفصولين بفاصلة
                 STUFF((SELECT ', ' + E.empName
                        FROM tbl_ClassroomTeacherAssign A
                        INNER JOIN tbl_empolyee E ON A.Emp_ID = E.ID
@@ -35,97 +59,151 @@ const getClassesDashboard = async (req, res) => {
         `;
 
         const request = new sql.Request();
-        request.input('branchId', sql.SmallInt, branchId);
+        request.input('branchId', sql.SmallInt, parseInt(branchId));
         
         const result = await request.query(query);
 
-        // بنضيف حقل محسوب في الجافاسكريبت (المقاعد المتبقية)
         const classesData = result.recordset.map(cls => ({
             ...cls,
             RemainingSeats: cls.Capacity - cls.CurrentStudentCount,
             IsFull: (cls.Capacity - cls.CurrentStudentCount) <= 0
         }));
 
-        res.status(200).json(classesData);
+        res.status(200).json({
+            success: true,
+            count: classesData.length,
+            data: classesData
+        });
 
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'خطأ في جلب بيانات الفصول', error: err.message });
+        console.error('❌ getClassesDashboard Error:', err);
+        res.status(500).json({ 
+            success: false,
+            message: 'خطأ في جلب بيانات الفصول', 
+            error: err.message 
+        });
     }
 };
 
-// 2. تسكين أو نقل طالب (العملية الأوتوماتيكية)
+// ================================================================
+// 2. تسكين أو نقل طالب
+// ================================================================
 const assignStudent = async (req, res) => {
     const { childId, classId, notes, userAdd } = req.body;
 
+    // Validation
+    if (!validateRequired({ childId, classId }, res)) return;
+
     const transaction = new sql.Transaction();
+    const egyptTime = getEgyptTime();
 
     try {
         await transaction.begin();
         const request = new sql.Request(transaction);
 
-        // أ. فحوصات الأمان (Validation)
-        request.input('childId', sql.Int, childId);
-        request.input('classId', sql.Int, classId);
+        request.input('childId', sql.Int, parseInt(childId));
+        request.input('classId', sql.Int, parseInt(classId));
+        request.input('egyptTime', sql.DateTime, egyptTime);
 
-        // 1. التأكد من تطابق الفرع (باستخدام الدالة اللي في الداتا بيز)
-        const branchCheck = await request.query(`SELECT dbo.fn_CheckChildBranchClass(@childId, @classId) as IsValid`);
+        // 1. التأكد من تطابق الفرع
+        const branchCheck = await request.query(
+            `SELECT dbo.fn_CheckChildBranchClass(@childId, @classId) as IsValid`
+        );
         if (!branchCheck.recordset[0].IsValid) {
-            throw new Error("عفواً، لا يمكن تسكين الطفل في فصل تابع لفرع آخر ❌");
+            await transaction.rollback();
+            return res.status(400).json({ 
+                success: false,
+                message: "لا يمكن تسكين الطفل في فصل تابع لفرع آخر ❌" 
+            });
         }
 
-        // 2. التأكد من السعة (Capacity Check)
+        // 2. التأكد من السعة
         const capacityCheck = await request.query(`
             SELECT 
                 (C.Capacity - (SELECT COUNT(*) FROM tbl_ChildClassHistory WHERE Class_ID = @classId AND LeaveDate IS NULL)) as Remaining
             FROM tbl_Classroom C WHERE C.Class_ID = @classId
         `);
-        if (capacityCheck.recordset[0].Remaining <= 0) {
-            throw new Error("عفواً، هذا الفصل ممتلئ بالكامل (Full Capacity) ⚠️");
+        
+        if (!capacityCheck.recordset[0] || capacityCheck.recordset[0].Remaining <= 0) {
+            await transaction.rollback();
+            return res.status(400).json({ 
+                success: false,
+                message: "هذا الفصل ممتلئ بالكامل ⚠️" 
+            });
         }
 
-        // ب. التنفيذ (Execution)
-        
-        // 1. إغلاق الفصل القديم (النقل الأوتوماتيك)
+        // 3. إغلاق الفصل القديم
         await request.query(`
             UPDATE tbl_ChildClassHistory 
-            SET LeaveDate = GETDATE() 
+            SET LeaveDate = @egyptTime 
             WHERE Child_ID = @childId AND LeaveDate IS NULL
         `);
 
-        // 2. فتح السجل الجديد
-        request.input('notes', sql.NVarChar, notes);
-        request.input('user', sql.VarChar, userAdd);
+        // 4. فتح السجل الجديد
+        request.input('notes', sql.NVarChar, notes || '');
+        request.input('user', sql.VarChar, userAdd || 'System');
         
         await request.query(`
             INSERT INTO tbl_ChildClassHistory 
             (Child_ID, Class_ID, JoinDate, Notes, userAdd, Addtime)
             VALUES 
-            (@childId, @classId, GETDATE(), @notes, @user, GETDATE())
+            (@childId, @classId, @egyptTime, @notes, @user, @egyptTime)
         `);
 
         await transaction.commit();
-        res.status(200).json({ message: 'تم نقل/تسكين الطفل بنجاح ✅' });
+        
+        res.status(200).json({ 
+            success: true,
+            message: 'تم نقل/تسكين الطفل بنجاح ✅' 
+        });
 
     } catch (err) {
-        if (transaction._aborted === false) await transaction.rollback();
-        res.status(400).json({ message: err.message || 'فشلت العملية' });
+        // التعامل الآمن مع الـ transaction
+        try {
+            await transaction.rollback();
+        } catch (rollbackErr) {
+            console.error('Rollback Error:', rollbackErr);
+        }
+        
+        console.error('❌ assignStudent Error:', err);
+        res.status(500).json({ 
+            success: false,
+            message: 'فشلت عملية التسكين',
+            error: err.message 
+        });
     }
 };
 
-// 3. إضافة مدرس للفصل (Assign Teacher)
+// ================================================================
+// 3. إضافة مدرس للفصل
+// ================================================================
 const addTeacherToClass = async (req, res) => {
     const { classId, empId, notes, userAdd } = req.body;
 
+    // Validation
+    if (!validateRequired({ classId, empId }, res)) return;
+
+    const egyptTime = getEgyptTime();
+
     try {
         const request = new sql.Request();
-        request.input('classId', sql.Int, classId);
-        request.input('empId', sql.Int, empId);
-        request.input('notes', sql.NVarChar, notes);
-        request.input('user', sql.VarChar, userAdd);
+        request.input('classId', sql.Int, parseInt(classId));
+        request.input('empId', sql.Int, parseInt(empId));
 
-        // 1. التأكد إن المدرس والفصل نفس الفرع
-        // بنعمل JOIN بسيط عشان نتأكد
+        // 1. التأكد إن المدرس مش معين فعلاً (منع التكرار)
+        const duplicateCheck = await request.query(`
+            SELECT 1 FROM tbl_ClassroomTeacherAssign 
+            WHERE Class_ID = @classId AND Emp_ID = @empId AND IsActive = 1
+        `);
+        
+        if (duplicateCheck.recordset.length > 0) {
+            return res.status(409).json({ 
+                success: false,
+                message: 'المدرس معين بالفعل لهذا الفصل ⚠️' 
+            });
+        }
+
+        // 2. التأكد إن المدرس والفصل نفس الفرع
         const checkQuery = `
             SELECT 1 
             FROM tbl_Classroom C
@@ -135,55 +213,106 @@ const addTeacherToClass = async (req, res) => {
         const checkResult = await request.query(checkQuery);
         
         if (checkResult.recordset.length === 0) {
-            return res.status(400).json({ message: 'المدرس والفصل يجب أن يكونوا في نفس الفرع ⚠️' });
+            return res.status(400).json({ 
+                success: false,
+                message: 'المدرس والفصل يجب أن يكونوا في نفس الفرع ⚠️' 
+            });
         }
 
-        // 2. الإضافة
+        // 3. الإضافة
+        request.input('notes', sql.NVarChar, notes || '');
+        request.input('user', sql.VarChar, userAdd || 'System');
+        request.input('egyptTime', sql.DateTime, egyptTime);
+
         await request.query(`
             INSERT INTO tbl_ClassroomTeacherAssign 
             (Class_ID, Emp_ID, AssignDate, Notes, IsActive, userAdd, Addtime)
             VALUES 
-            (@classId, @empId, GETDATE(), @notes, 1, @user, GETDATE())
+            (@classId, @empId, @egyptTime, @notes, 1, @user, @egyptTime)
         `);
 
-        res.status(200).json({ message: 'تم تعيين المدرس للفصل بنجاح 👨‍🏫' });
+        res.status(201).json({ 
+            success: true,
+            message: 'تم تعيين المدرس للفصل بنجاح 👨‍🏫' 
+        });
 
     } catch (err) {
-        console.error(err);
-        res.status(500).json({ message: 'خطأ في التعيين', error: err.message });
+        console.error('❌ addTeacherToClass Error:', err);
+        res.status(500).json({ 
+            success: false,
+            message: 'خطأ في التعيين', 
+            error: err.message 
+        });
     }
 };
 
-// 4. حذف (إلغاء تفعيل) مدرس من فصل
+// ================================================================
+// 4. إلغاء تكليف مدرس من فصل
+// ================================================================
 const removeTeacherFromClass = async (req, res) => {
-    const { assignId } = req.body; // هنا بناخد ID العلاقة نفسها (السطر في الجدول)
+    const { assignId } = req.body;
+
+    // Validation
+    if (!assignId || isNaN(assignId)) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'رقم التكليف مطلوب ويجب أن يكون رقم صحيح' 
+        });
+    }
+
+    const egyptTime = getEgyptTime();
 
     try {
         const request = new sql.Request();
-        request.input('id', sql.Int, assignId);
+        request.input('id', sql.Int, parseInt(assignId));
+        request.input('egyptTime', sql.DateTime, egyptTime);
 
-        await request.query(`
+        // التحديث مع التأكد إنه موجود ومفعل
+        const result = await request.query(`
             UPDATE tbl_ClassroomTeacherAssign
-            SET IsActive = 0
-            WHERE ID = @id
+            SET IsActive = 0, editTime = @egyptTime
+            WHERE ID = @id AND IsActive = 1
         `);
 
-        res.status(200).json({ message: 'تم إلغاء تكليف المدرس من الفصل 🗑️' });
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ 
+                success: false,
+                message: 'التكليف غير موجود أو ملغي مسبقاً' 
+            });
+        }
+
+        res.status(200).json({ 
+            success: true,
+            message: 'تم إلغاء تكليف المدرس من الفصل 🗑️' 
+        });
 
     } catch (err) {
-        res.status(500).json({ message: 'خطأ', error: err.message });
+        console.error('❌ removeTeacherFromClass Error:', err);
+        res.status(500).json({ 
+            success: false,
+            message: 'خطأ في إلغاء التكليف', 
+            error: err.message 
+        });
     }
 };
 
-// 5. جلب الأطفال "غير المسكنين" (للتسهيل على المشرفة)
+// ================================================================
+// 5. جلب الأطفال غير المسكنين
+// ================================================================
 const getUnassignedChildren = async (req, res) => {
     const { branchId } = req.query;
 
+    if (!branchId || isNaN(branchId)) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'رقم الفرع مطلوب ويجب أن يكون رقم صحيح' 
+        });
+    }
+
     try {
         const request = new sql.Request();
-        request.input('branchId', sql.SmallInt, branchId);
+        request.input('branchId', sql.SmallInt, parseInt(branchId));
 
-        // بنجيب الأطفال اللي في الفرع ده، وملهمش سجل مفتوح (LeaveDate IS NULL) في الهيستوري
         const query = `
             SELECT C.ID_Child, C.FullNameArabic, C.Age, C.birthDate
             FROM tbl_Child C
@@ -193,45 +322,262 @@ const getUnassignedChildren = async (req, res) => {
                 SELECT 1 FROM tbl_ChildClassHistory H 
                 WHERE H.Child_ID = C.ID_Child AND H.LeaveDate IS NULL
             )
+            ORDER BY C.FullNameArabic
         `;
         
         const result = await request.query(query);
-        res.status(200).json(result.recordset);
+        
+        res.status(200).json({
+            success: true,
+            count: result.recordset.length,
+            data: result.recordset
+        });
 
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error('❌ getUnassignedChildren Error:', err);
+        res.status(500).json({ 
+            success: false,
+            message: 'خطأ في جلب البيانات',
+            error: err.message 
+        });
     }
 };
 
-// 6. إضافة فصل جديد (Create Class)
+// ================================================================
+// 6. إضافة فصل جديد
+// ================================================================
 const addClass = async (req, res) => {
     const { className, branchId, capacity, notes, userAdd } = req.body;
 
+    console.log('📥 addClass Request Body:', req.body);
+
+    // Validation
+    if (!validateRequired({ className, branchId, capacity }, res)) return;
+
+    if (isNaN(capacity) || parseInt(capacity) <= 0) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'السعة يجب أن تكون رقم أكبر من صفر' 
+        });
+    }
+
+    const egyptTime = getEgyptTime();
+
     try {
         const request = new sql.Request();
-        request.input('name', sql.NVarChar, className);
-        request.input('branch', sql.SmallInt, branchId);
-        request.input('cap', sql.Int, capacity);
-        request.input('notes', sql.NVarChar, notes);
-        request.input('user', sql.VarChar, userAdd);
+        request.input('name', sql.NVarChar, className.trim());
+        request.input('branch', sql.SmallInt, parseInt(branchId));
+        request.input('cap', sql.Int, parseInt(capacity));
+        request.input('notes', sql.NVarChar, notes || '');
+        request.input('user', sql.VarChar, userAdd || 'System');
+        request.input('egyptTime', sql.DateTime, egyptTime);
 
-        // جملة الإضافة
-        await request.query(`
+        const result = await request.query(`
             INSERT INTO tbl_Classroom 
             (ClassName, BranchID, Capacity, Notes, IsActive, userAdd, Addtime)
+            OUTPUT INSERTED.Class_ID
             VALUES 
-            (@name, @branch, @cap, @notes, 1, @user, GETDATE())
+            (@name, @branch, @cap, @notes, 1, @user, @egyptTime)
         `);
 
-        res.status(201).json({ message: 'تم إضافة الفصل بنجاح ✅' });
+        res.status(201).json({ 
+            success: true,
+            message: 'تم إضافة الفصل بنجاح ✅',
+            classId: result.recordset[0].Class_ID
+        });
 
     } catch (err) {
-        console.error(err);
-        // لو الاسم متكرر في نفس الفرع (بناءً على الـ Constraint اللي في الداتا بيز)
+        console.error('❌ addClass Error:', err);
+        
         if (err.number === 2627 || err.number === 2601) {
-            return res.status(409).json({ message: 'اسم الفصل موجود مسبقاً في هذا الفرع ⚠️' });
+            return res.status(409).json({ 
+                success: false,
+                message: 'اسم الفصل موجود مسبقاً في هذا الفرع ⚠️' 
+            });
         }
-        res.status(500).json({ message: 'فشل إضافة الفصل', error: err.message });
+        
+        res.status(500).json({ 
+            success: false,
+            message: 'فشل إضافة الفصل', 
+            error: err.message,
+            code: err.number
+        });
+    }
+};
+
+// ================================================================
+// 7. تعديل بيانات الفصل ⭐ (المعدلة)
+// ================================================================
+const updateClass = async (req, res) => {
+    const { id } = req.params;
+    const { className, capacity, notes, isActive, userEdit } = req.body;
+
+    // 🔍 Debug Logging
+    console.log('========== UPDATE CLASS DEBUG ==========');
+    console.log('📌 Params ID:', id);
+    console.log('📌 Request Body:', req.body);
+    console.log('=========================================');
+
+    // ✅ Validation 1: ID
+    if (!id || isNaN(id)) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'رقم الفصل غير صحيح أو مفقود',
+            receivedId: id
+        });
+    }
+
+    // ✅ Validation 2: Required Fields
+    if (!validateRequired({ className, capacity }, res)) return;
+
+    // ✅ Validation 3: Capacity
+    if (isNaN(capacity) || parseInt(capacity) <= 0) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'السعة يجب أن تكون رقم أكبر من صفر' 
+        });
+    }
+
+    const egyptTime = getEgyptTime();
+
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, parseInt(id));
+        request.input('name', sql.NVarChar, className.trim());
+        request.input('cap', sql.Int, parseInt(capacity));
+        request.input('notes', sql.NVarChar, notes || '');
+        request.input('user', sql.VarChar, userEdit || 'System');
+        request.input('egyptTime', sql.DateTime, egyptTime);
+        
+        // التعامل الصحيح مع isActive
+        let activeValue = 1; // Default
+        if (isActive !== undefined && isActive !== null) {
+            if (typeof isActive === 'boolean') {
+                activeValue = isActive ? 1 : 0;
+            } else if (typeof isActive === 'string') {
+                activeValue = (isActive.toLowerCase() === 'true' || isActive === '1') ? 1 : 0;
+            } else {
+                activeValue = isActive ? 1 : 0;
+            }
+        }
+        request.input('active', sql.Bit, activeValue);
+
+        // ✅ التأكد من وجود الفصل أولاً
+        const checkExist = await request.query(
+            `SELECT Class_ID, BranchID FROM tbl_Classroom WHERE Class_ID = @id`
+        );
+        
+        if (checkExist.recordset.length === 0) {
+            return res.status(404).json({ 
+                success: false,
+                message: 'الفصل غير موجود ❌',
+                classId: id
+            });
+        }
+
+        const branchId = checkExist.recordset[0].BranchID;
+        request.input('branchId', sql.SmallInt, branchId);
+
+        // ✅ التأكد من عدم تكرار الاسم في نفس الفرع (باستثناء الفصل الحالي)
+        const duplicateCheck = await request.query(`
+            SELECT 1 FROM tbl_Classroom 
+            WHERE ClassName = @name AND BranchID = @branchId AND Class_ID != @id
+        `);
+        
+        if (duplicateCheck.recordset.length > 0) {
+            return res.status(409).json({ 
+                success: false,
+                message: 'اسم الفصل موجود مسبقاً في هذا الفرع ⚠️' 
+            });
+        }
+
+        // ✅ التنفيذ
+        const result = await request.query(`
+            UPDATE tbl_Classroom
+            SET 
+                ClassName = @name,
+                Capacity = @cap,
+                Notes = @notes,
+                IsActive = @active,
+                useredit = @user,
+                editTime = @egyptTime
+            WHERE Class_ID = @id
+        `);
+
+        console.log('✅ Rows Affected:', result.rowsAffected[0]);
+
+        res.status(200).json({ 
+            success: true,
+            message: 'تم تعديل بيانات الفصل بنجاح ✅',
+            classId: parseInt(id)
+        });
+
+    } catch (err) {
+        console.error('❌ updateClass Error:', err);
+        
+        res.status(500).json({ 
+            success: false,
+            message: 'فشل التعديل', 
+            error: err.message,
+            code: err.number,
+            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+        });
+    }
+};
+
+// ================================================================
+// 8. جلب فصل واحد بالـ ID (جديدة) 🆕
+// ================================================================
+const getClassById = async (req, res) => {
+    const { id } = req.params;
+
+    if (!id || isNaN(id)) {
+        return res.status(400).json({ 
+            success: false,
+            message: 'رقم الفصل غير صحيح' 
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, parseInt(id));
+
+        const result = await request.query(`
+            SELECT 
+                C.Class_ID,
+                C.ClassName,
+                C.BranchID,
+                C.Capacity,
+                C.Notes,
+                C.IsActive,
+                C.Addtime,
+                C.editTime,
+                (SELECT COUNT(*) 
+                 FROM tbl_ChildClassHistory H 
+                 WHERE H.Class_ID = C.Class_ID AND H.LeaveDate IS NULL) AS CurrentStudentCount
+            FROM tbl_Classroom C
+            WHERE C.Class_ID = @id
+        `);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({ 
+                success: false,
+                message: 'الفصل غير موجود' 
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: result.recordset[0]
+        });
+
+    } catch (err) {
+        console.error('❌ getClassById Error:', err);
+        res.status(500).json({ 
+            success: false,
+            message: 'خطأ في جلب البيانات',
+            error: err.message 
+        });
     }
 };
 
@@ -241,5 +587,7 @@ module.exports = {
     addTeacherToClass,
     removeTeacherFromClass,
     getUnassignedChildren,
-    addClass
+    addClass,
+    updateClass,
+    getClassById  // 🆕
 };
