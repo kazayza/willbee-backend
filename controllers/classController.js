@@ -587,8 +587,7 @@ const getClassChildren = async (req, res) => {
                 H.Notes as AssignNotes,
                 C.FullNameArabic,
                 C.Age,
-                C.birthDate,
-                C.Gender
+                C.birthDate
             FROM tbl_ChildClassHistory H
             INNER JOIN tbl_Child C ON H.Child_ID = C.ID_Child
             WHERE H.Class_ID = @classId 
