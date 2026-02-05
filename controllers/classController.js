@@ -578,10 +578,9 @@ const getClassChildren = async (req, res) => {
         const request = new sql.Request();
         request.input('classId', sql.Int, parseInt(classId));
 
-        // جلب الأطفال المسكنين حالياً (LeaveDate IS NULL)
         const result = await request.query(`
             SELECT 
-                H.ID as HistoryId,
+                H.RecordID as HistoryId,
                 H.Child_ID,
                 H.JoinDate,
                 H.Notes as AssignNotes,
@@ -628,10 +627,9 @@ const getClassHistory = async (req, res) => {
         const request = new sql.Request();
         request.input('classId', sql.Int, parseInt(classId));
 
-        // جلب الأطفال اللي خرجوا (LeaveDate IS NOT NULL)
         const result = await request.query(`
             SELECT 
-                H.ID as HistoryId,
+                H.RecordID as HistoryId,
                 H.Child_ID,
                 H.JoinDate,
                 H.LeaveDate,
@@ -683,12 +681,11 @@ const removeStudentFromClass = async (req, res) => {
         request.input('egyptTime', sql.DateTime, egyptTime);
         request.input('user', sql.VarChar, userEdit || 'System');
 
-        // التأكد من وجود السجل وأنه مفتوح
         const checkResult = await request.query(`
-            SELECT H.ID, H.Child_ID, C.FullNameArabic
+            SELECT H.RecordID, H.Child_ID, C.FullNameArabic
             FROM tbl_ChildClassHistory H
             INNER JOIN tbl_Child C ON H.Child_ID = C.ID_Child
-            WHERE H.ID = @historyId AND H.LeaveDate IS NULL
+            WHERE H.RecordID = @historyId AND H.LeaveDate IS NULL
         `);
 
         if (checkResult.recordset.length === 0) {
@@ -700,11 +697,10 @@ const removeStudentFromClass = async (req, res) => {
 
         const childName = checkResult.recordset[0].FullNameArabic;
 
-        // إغلاق السجل (إخراج الطفل)
         await request.query(`
             UPDATE tbl_ChildClassHistory
             SET LeaveDate = @egyptTime, useredit = @user, editTime = @egyptTime
-            WHERE ID = @historyId
+            WHERE RecordID = @historyId
         `);
 
         res.status(200).json({
