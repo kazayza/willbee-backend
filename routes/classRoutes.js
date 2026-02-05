@@ -19,6 +19,8 @@ router.get('/:classId/history', classController.getClassHistory);
 // جلب الفصول المتاحة للنقل 🆕
 router.get('/:classId/available-for-transfer', classController.getAvailableClassesForTransfer);
 
+router.get('/:classId/statistics', classController.getClassStatistics);
+
 // جلب فصل واحد
 router.get('/:id', classController.getClassById);
 

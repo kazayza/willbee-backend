@@ -878,6 +878,99 @@ const getAvailableClassesForTransfer = async (req, res) => {
     }
 };
 
+// ================================================================
+// 14. إحصائيات الفصل
+// ================================================================
+const getClassStatistics = async (req, res) => {
+    const { classId } = req.params;
+
+    if (!classId || isNaN(classId)) {
+        return res.status(400).json({
+            success: false,
+            message: 'رقم الفصل غير صحيح'
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('classId', sql.Int, parseInt(classId));
+
+        const result = await request.query(`
+            SELECT 
+                C.Class_ID,
+                C.ClassName,
+                C.Capacity,
+                
+                -- عدد الطلاب الحاليين
+                (SELECT COUNT(*) 
+                 FROM tbl_ChildClassHistory H 
+                 WHERE H.Class_ID = C.Class_ID AND H.LeaveDate IS NULL) AS CurrentStudentCount,
+                
+                -- متوسط الأعمار
+                (SELECT AVG(CAST(Ch.Age AS FLOAT)) 
+                 FROM tbl_ChildClassHistory H 
+                 INNER JOIN tbl_Child Ch ON H.Child_ID = Ch.ID_Child
+                 WHERE H.Class_ID = C.Class_ID AND H.LeaveDate IS NULL) AS AverageAge,
+                
+                -- تاريخ آخر تسكين
+                (SELECT MAX(H.JoinDate) 
+                 FROM tbl_ChildClassHistory H 
+                 WHERE H.Class_ID = C.Class_ID AND H.LeaveDate IS NULL) AS LastJoinDate,
+                
+                -- عدد الطلاب الذين غادروا
+                (SELECT COUNT(*) 
+                 FROM tbl_ChildClassHistory H 
+                 WHERE H.Class_ID = C.Class_ID AND H.LeaveDate IS NOT NULL) AS TotalLeftStudents,
+                
+                -- إجمالي الطلاب (الحاليين + السابقين)
+                (SELECT COUNT(DISTINCT H.Child_ID) 
+                 FROM tbl_ChildClassHistory H 
+                 WHERE H.Class_ID = C.Class_ID) AS TotalStudentsEver
+
+            FROM tbl_Classroom C
+            WHERE C.Class_ID = @classId
+        `);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'الفصل غير موجود'
+            });
+        }
+
+        const stats = result.recordset[0];
+        
+        // حساب نسبة الإشغال
+        const occupancyRate = stats.Capacity > 0 
+            ? Math.round((stats.CurrentStudentCount / stats.Capacity) * 100) 
+            : 0;
+
+        res.status(200).json({
+            success: true,
+            data: {
+                classId: stats.Class_ID,
+                className: stats.ClassName,
+                capacity: stats.Capacity,
+                currentStudentCount: stats.CurrentStudentCount,
+                availableSeats: stats.Capacity - stats.CurrentStudentCount,
+                occupancyRate: occupancyRate,
+                averageAge: stats.AverageAge ? Math.round(stats.AverageAge * 10) / 10 : 0,
+                lastJoinDate: stats.LastJoinDate,
+                totalLeftStudents: stats.TotalLeftStudents,
+                totalStudentsEver: stats.TotalStudentsEver
+            }
+        });
+
+    } catch (err) {
+        console.error('getClassStatistics Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب الإحصائيات',
+            error: err.message
+        });
+    }
+};
+
 module.exports = {
     getClassesDashboard,
     assignStudent,
@@ -891,5 +984,6 @@ module.exports = {
     getClassHistory,
     removeStudentFromClass,
     transferStudent,
-    getAvailableClassesForTransfer
+    getAvailableClassesForTransfer,
+    getClassStatistics
 };
