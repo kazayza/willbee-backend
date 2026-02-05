@@ -1,9 +1,11 @@
 const { sql } = require('../config/db');
-const moment = require('moment-timezone');
 
-// ========== دالة مساعدة لتوقيت مصر ==========
+// ========== دالة مساعدة لتوقيت مصر (Native JS) ==========
 const getEgyptTime = () => {
-    return moment().tz('Africa/Cairo').format('YYYY-MM-DD HH:mm:ss');
+    const now = new Date();
+    // تحويل لتوقيت مصر
+    const egyptTime = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+    return egyptTime;
 };
 
 // ========== دالة مساعدة للـ Validation ==========
@@ -26,7 +28,6 @@ const validateRequired = (fields, res) => {
 const getClassesDashboard = async (req, res) => {
     const { branchId } = req.query;
 
-    // Validation
     if (!branchId || isNaN(branchId)) {
         return res.status(400).json({ 
             success: false,
@@ -76,7 +77,7 @@ const getClassesDashboard = async (req, res) => {
         });
 
     } catch (err) {
-        console.error('❌ getClassesDashboard Error:', err);
+        console.error('getClassesDashboard Error:', err);
         res.status(500).json({ 
             success: false,
             message: 'خطأ في جلب بيانات الفصول', 
@@ -91,7 +92,6 @@ const getClassesDashboard = async (req, res) => {
 const assignStudent = async (req, res) => {
     const { childId, classId, notes, userAdd } = req.body;
 
-    // Validation
     if (!validateRequired({ childId, classId }, res)) return;
 
     const transaction = new sql.Transaction();
@@ -113,7 +113,7 @@ const assignStudent = async (req, res) => {
             await transaction.rollback();
             return res.status(400).json({ 
                 success: false,
-                message: "لا يمكن تسكين الطفل في فصل تابع لفرع آخر ❌" 
+                message: "لا يمكن تسكين الطفل في فصل تابع لفرع آخر" 
             });
         }
 
@@ -128,7 +128,7 @@ const assignStudent = async (req, res) => {
             await transaction.rollback();
             return res.status(400).json({ 
                 success: false,
-                message: "هذا الفصل ممتلئ بالكامل ⚠️" 
+                message: "هذا الفصل ممتلئ بالكامل" 
             });
         }
 
@@ -154,18 +154,17 @@ const assignStudent = async (req, res) => {
         
         res.status(200).json({ 
             success: true,
-            message: 'تم نقل/تسكين الطفل بنجاح ✅' 
+            message: 'تم نقل/تسكين الطفل بنجاح' 
         });
 
     } catch (err) {
-        // التعامل الآمن مع الـ transaction
         try {
             await transaction.rollback();
         } catch (rollbackErr) {
             console.error('Rollback Error:', rollbackErr);
         }
         
-        console.error('❌ assignStudent Error:', err);
+        console.error('assignStudent Error:', err);
         res.status(500).json({ 
             success: false,
             message: 'فشلت عملية التسكين',
@@ -180,7 +179,6 @@ const assignStudent = async (req, res) => {
 const addTeacherToClass = async (req, res) => {
     const { classId, empId, notes, userAdd } = req.body;
 
-    // Validation
     if (!validateRequired({ classId, empId }, res)) return;
 
     const egyptTime = getEgyptTime();
@@ -190,7 +188,7 @@ const addTeacherToClass = async (req, res) => {
         request.input('classId', sql.Int, parseInt(classId));
         request.input('empId', sql.Int, parseInt(empId));
 
-        // 1. التأكد إن المدرس مش معين فعلاً (منع التكرار)
+        // 1. التأكد إن المدرس مش معين فعلاً
         const duplicateCheck = await request.query(`
             SELECT 1 FROM tbl_ClassroomTeacherAssign 
             WHERE Class_ID = @classId AND Emp_ID = @empId AND IsActive = 1
@@ -199,23 +197,22 @@ const addTeacherToClass = async (req, res) => {
         if (duplicateCheck.recordset.length > 0) {
             return res.status(409).json({ 
                 success: false,
-                message: 'المدرس معين بالفعل لهذا الفصل ⚠️' 
+                message: 'المدرس معين بالفعل لهذا الفصل' 
             });
         }
 
         // 2. التأكد إن المدرس والفصل نفس الفرع
-        const checkQuery = `
+        const checkResult = await request.query(`
             SELECT 1 
             FROM tbl_Classroom C
             JOIN tbl_empolyee E ON E.BranchID = C.BranchID
             WHERE C.Class_ID = @classId AND E.ID = @empId
-        `;
-        const checkResult = await request.query(checkQuery);
+        `);
         
         if (checkResult.recordset.length === 0) {
             return res.status(400).json({ 
                 success: false,
-                message: 'المدرس والفصل يجب أن يكونوا في نفس الفرع ⚠️' 
+                message: 'المدرس والفصل يجب أن يكونوا في نفس الفرع' 
             });
         }
 
@@ -233,11 +230,11 @@ const addTeacherToClass = async (req, res) => {
 
         res.status(201).json({ 
             success: true,
-            message: 'تم تعيين المدرس للفصل بنجاح 👨‍🏫' 
+            message: 'تم تعيين المدرس للفصل بنجاح' 
         });
 
     } catch (err) {
-        console.error('❌ addTeacherToClass Error:', err);
+        console.error('addTeacherToClass Error:', err);
         res.status(500).json({ 
             success: false,
             message: 'خطأ في التعيين', 
@@ -250,9 +247,8 @@ const addTeacherToClass = async (req, res) => {
 // 4. إلغاء تكليف مدرس من فصل
 // ================================================================
 const removeTeacherFromClass = async (req, res) => {
-    const { assignId } = req.body;
+    const assignId = req.body.assignId || req.params.assignId;
 
-    // Validation
     if (!assignId || isNaN(assignId)) {
         return res.status(400).json({ 
             success: false,
@@ -267,7 +263,6 @@ const removeTeacherFromClass = async (req, res) => {
         request.input('id', sql.Int, parseInt(assignId));
         request.input('egyptTime', sql.DateTime, egyptTime);
 
-        // التحديث مع التأكد إنه موجود ومفعل
         const result = await request.query(`
             UPDATE tbl_ClassroomTeacherAssign
             SET IsActive = 0, editTime = @egyptTime
@@ -283,11 +278,11 @@ const removeTeacherFromClass = async (req, res) => {
 
         res.status(200).json({ 
             success: true,
-            message: 'تم إلغاء تكليف المدرس من الفصل 🗑️' 
+            message: 'تم إلغاء تكليف المدرس من الفصل' 
         });
 
     } catch (err) {
-        console.error('❌ removeTeacherFromClass Error:', err);
+        console.error('removeTeacherFromClass Error:', err);
         res.status(500).json({ 
             success: false,
             message: 'خطأ في إلغاء التكليف', 
@@ -313,7 +308,7 @@ const getUnassignedChildren = async (req, res) => {
         const request = new sql.Request();
         request.input('branchId', sql.SmallInt, parseInt(branchId));
 
-        const query = `
+        const result = await request.query(`
             SELECT C.ID_Child, C.FullNameArabic, C.Age, C.birthDate
             FROM tbl_Child C
             WHERE C.Branch = @branchId
@@ -323,9 +318,7 @@ const getUnassignedChildren = async (req, res) => {
                 WHERE H.Child_ID = C.ID_Child AND H.LeaveDate IS NULL
             )
             ORDER BY C.FullNameArabic
-        `;
-        
-        const result = await request.query(query);
+        `);
         
         res.status(200).json({
             success: true,
@@ -334,7 +327,7 @@ const getUnassignedChildren = async (req, res) => {
         });
 
     } catch (err) {
-        console.error('❌ getUnassignedChildren Error:', err);
+        console.error('getUnassignedChildren Error:', err);
         res.status(500).json({ 
             success: false,
             message: 'خطأ في جلب البيانات',
@@ -349,9 +342,8 @@ const getUnassignedChildren = async (req, res) => {
 const addClass = async (req, res) => {
     const { className, branchId, capacity, notes, userAdd } = req.body;
 
-    console.log('📥 addClass Request Body:', req.body);
+    console.log('addClass Request:', req.body);
 
-    // Validation
     if (!validateRequired({ className, branchId, capacity }, res)) return;
 
     if (isNaN(capacity) || parseInt(capacity) <= 0) {
@@ -382,43 +374,40 @@ const addClass = async (req, res) => {
 
         res.status(201).json({ 
             success: true,
-            message: 'تم إضافة الفصل بنجاح ✅',
+            message: 'تم إضافة الفصل بنجاح',
             classId: result.recordset[0].Class_ID
         });
 
     } catch (err) {
-        console.error('❌ addClass Error:', err);
+        console.error('addClass Error:', err);
         
         if (err.number === 2627 || err.number === 2601) {
             return res.status(409).json({ 
                 success: false,
-                message: 'اسم الفصل موجود مسبقاً في هذا الفرع ⚠️' 
+                message: 'اسم الفصل موجود مسبقاً في هذا الفرع' 
             });
         }
         
         res.status(500).json({ 
             success: false,
             message: 'فشل إضافة الفصل', 
-            error: err.message,
-            code: err.number
+            error: err.message
         });
     }
 };
 
 // ================================================================
-// 7. تعديل بيانات الفصل ⭐ (المعدلة)
+// 7. تعديل بيانات الفصل
 // ================================================================
 const updateClass = async (req, res) => {
     const { id } = req.params;
     const { className, capacity, notes, isActive, userEdit } = req.body;
 
-    // 🔍 Debug Logging
-    console.log('========== UPDATE CLASS DEBUG ==========');
-    console.log('📌 Params ID:', id);
-    console.log('📌 Request Body:', req.body);
-    console.log('=========================================');
+    // Debug
+    console.log('updateClass - ID:', id);
+    console.log('updateClass - Body:', req.body);
 
-    // ✅ Validation 1: ID
+    // Validation
     if (!id || isNaN(id)) {
         return res.status(400).json({ 
             success: false,
@@ -427,10 +416,8 @@ const updateClass = async (req, res) => {
         });
     }
 
-    // ✅ Validation 2: Required Fields
     if (!validateRequired({ className, capacity }, res)) return;
 
-    // ✅ Validation 3: Capacity
     if (isNaN(capacity) || parseInt(capacity) <= 0) {
         return res.status(400).json({ 
             success: false,
@@ -449,8 +436,8 @@ const updateClass = async (req, res) => {
         request.input('user', sql.VarChar, userEdit || 'System');
         request.input('egyptTime', sql.DateTime, egyptTime);
         
-        // التعامل الصحيح مع isActive
-        let activeValue = 1; // Default
+        // التعامل مع isActive
+        let activeValue = 1;
         if (isActive !== undefined && isActive !== null) {
             if (typeof isActive === 'boolean') {
                 activeValue = isActive ? 1 : 0;
@@ -462,7 +449,7 @@ const updateClass = async (req, res) => {
         }
         request.input('active', sql.Bit, activeValue);
 
-        // ✅ التأكد من وجود الفصل أولاً
+        // التأكد من وجود الفصل
         const checkExist = await request.query(
             `SELECT Class_ID, BranchID FROM tbl_Classroom WHERE Class_ID = @id`
         );
@@ -470,15 +457,14 @@ const updateClass = async (req, res) => {
         if (checkExist.recordset.length === 0) {
             return res.status(404).json({ 
                 success: false,
-                message: 'الفصل غير موجود ❌',
-                classId: id
+                message: 'الفصل غير موجود'
             });
         }
 
         const branchId = checkExist.recordset[0].BranchID;
         request.input('branchId', sql.SmallInt, branchId);
 
-        // ✅ التأكد من عدم تكرار الاسم في نفس الفرع (باستثناء الفصل الحالي)
+        // التأكد من عدم تكرار الاسم
         const duplicateCheck = await request.query(`
             SELECT 1 FROM tbl_Classroom 
             WHERE ClassName = @name AND BranchID = @branchId AND Class_ID != @id
@@ -487,12 +473,12 @@ const updateClass = async (req, res) => {
         if (duplicateCheck.recordset.length > 0) {
             return res.status(409).json({ 
                 success: false,
-                message: 'اسم الفصل موجود مسبقاً في هذا الفرع ⚠️' 
+                message: 'اسم الفصل موجود مسبقاً في هذا الفرع' 
             });
         }
 
-        // ✅ التنفيذ
-        const result = await request.query(`
+        // التنفيذ
+        await request.query(`
             UPDATE tbl_Classroom
             SET 
                 ClassName = @name,
@@ -504,29 +490,23 @@ const updateClass = async (req, res) => {
             WHERE Class_ID = @id
         `);
 
-        console.log('✅ Rows Affected:', result.rowsAffected[0]);
-
         res.status(200).json({ 
             success: true,
-            message: 'تم تعديل بيانات الفصل بنجاح ✅',
-            classId: parseInt(id)
+            message: 'تم تعديل بيانات الفصل بنجاح'
         });
 
     } catch (err) {
-        console.error('❌ updateClass Error:', err);
-        
+        console.error('updateClass Error:', err);
         res.status(500).json({ 
             success: false,
             message: 'فشل التعديل', 
-            error: err.message,
-            code: err.number,
-            stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+            error: err.message
         });
     }
 };
 
 // ================================================================
-// 8. جلب فصل واحد بالـ ID (جديدة) 🆕
+// 8. جلب فصل واحد بالـ ID
 // ================================================================
 const getClassById = async (req, res) => {
     const { id } = req.params;
@@ -572,7 +552,7 @@ const getClassById = async (req, res) => {
         });
 
     } catch (err) {
-        console.error('❌ getClassById Error:', err);
+        console.error('getClassById Error:', err);
         res.status(500).json({ 
             success: false,
             message: 'خطأ في جلب البيانات',
@@ -589,5 +569,5 @@ module.exports = {
     getUnassignedChildren,
     addClass,
     updateClass,
-    getClassById  // 🆕
+    getClassById
 };
