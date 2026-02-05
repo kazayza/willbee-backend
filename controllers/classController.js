@@ -203,10 +203,43 @@ const getUnassignedChildren = async (req, res) => {
     }
 };
 
+// 6. إضافة فصل جديد (Create Class)
+const addClass = async (req, res) => {
+    const { className, branchId, capacity, notes, userAdd } = req.body;
+
+    try {
+        const request = new sql.Request();
+        request.input('name', sql.NVarChar, className);
+        request.input('branch', sql.SmallInt, branchId);
+        request.input('cap', sql.Int, capacity);
+        request.input('notes', sql.NVarChar, notes);
+        request.input('user', sql.VarChar, userAdd);
+
+        // جملة الإضافة
+        await request.query(`
+            INSERT INTO tbl_Classroom 
+            (ClassName, BranchID, Capacity, Notes, IsActive, userAdd, Addtime)
+            VALUES 
+            (@name, @branch, @cap, @notes, 1, @user, GETDATE())
+        `);
+
+        res.status(201).json({ message: 'تم إضافة الفصل بنجاح ✅' });
+
+    } catch (err) {
+        console.error(err);
+        // لو الاسم متكرر في نفس الفرع (بناءً على الـ Constraint اللي في الداتا بيز)
+        if (err.number === 2627 || err.number === 2601) {
+            return res.status(409).json({ message: 'اسم الفصل موجود مسبقاً في هذا الفرع ⚠️' });
+        }
+        res.status(500).json({ message: 'فشل إضافة الفصل', error: err.message });
+    }
+};
+
 module.exports = {
     getClassesDashboard,
     assignStudent,
     addTeacherToClass,
     removeTeacherFromClass,
-    getUnassignedChildren
+    getUnassignedChildren,
+    addClass
 };

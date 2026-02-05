@@ -22,4 +22,7 @@ router.post('/remove-teacher', classController.removeTeacherFromClass);
 // الرابط: /api/classes/unassigned?branchId=1
 router.get('/unassigned', classController.getUnassignedChildren);
 
+// إضافة فصل جديد
+router.post('/add', classController.addClass);
+
 module.exports = router;
