@@ -1,4 +1,5 @@
 const { sql } = require('../config/db');
+const { createAndPushNotification } = require('../utils/notificationHelper');
 
 // 1. حفظ قائمة الغائبين (تسجيل جديد أو تعديل)
 // 1. حفظ قائمة الغائبين (مع دعم تعدد الفصول)
@@ -71,25 +72,24 @@ const saveAbsenceList = async (req, res) => {
         }
 
         await transaction.commit();
+         // ============================================================
+        // 🚀 إرسال إشعار تجاوز الحد (لـ Admin و PRUser)
         // ============================================================
-        // 🚀 الإضافة الجديدة: فحص تجاوز الحد (Alert Logic)
-        // ============================================================
-        let alertMessage = "";
         
-        // لو فيه أطفال غايبين، نعد غيابهم في الشهر الحالي
+        // 1. التحقق من التجاوز
         if (absentChildren && absentChildren.length > 0) {
             const ids = absentChildren.map(c => c.childId).join(',');
             
-            // كويري بيجيب أسماء الأطفال اللي عدوا 3 أيام غياب في الشهر ده
+            // كويري يجيب الأطفال اللي غابوا أكتر من 3 مرات في نفس الشهر
             const alertQuery = `
-                SELECT C.FullNameArabic, COUNT(*) as Count
+                SELECT C.FullNameArabic, COUNT(*) as Count, C.ID_Child
                 FROM tbl_absenceDetalis D
                 INNER JOIN tbl_absenseChild M ON D.ID = M.ID
                 INNER JOIN tbl_Child C ON D.Child_code = C.ID_Child
                 WHERE D.Child_code IN (${ids})
                 AND MONTH(M.Databsense) = MONTH(@date)
                 AND YEAR(M.Databsense) = YEAR(@date)
-                GROUP BY C.FullNameArabic
+                GROUP BY C.FullNameArabic, C.ID_Child
                 HAVING COUNT(*) > 3
             `;
             
@@ -97,12 +97,37 @@ const saveAbsenceList = async (req, res) => {
             requestAlert.input('date', sql.Date, date);
             const alertResult = await requestAlert.query(alertQuery);
 
+            // لو لقينا أطفال تجاوزوا الحد
             if (alertResult.recordset.length > 0) {
-                const names = alertResult.recordset.map(r => `${r.FullNameArabic} (${r.Count} أيام)`).join('، ');
-                alertMessage = `\n⚠️ تنبيه: تجاوز الحد المسموح: ${names}`;
+                
+                // 2. نجيب المستخدمين المستهدفين (Admin + PRUser)
+                const targetUsersRequest = new sql.Request();
+                const targetUsers = await targetUsersRequest.query(`
+                    SELECT UserId FROM tbl_users 
+                    WHERE Role IN ('Admin', 'PRUser') -- 👈 التعديل حسب طلبك
+                `);
+
+                // 3. إرسال الإشعارات
+                for (const record of alertResult.recordset) {
+                    const message = `تجاوز الطالب "${record.FullNameArabic}" حد الغياب (${record.Count} أيام)`;
+                    
+                    for (const u of targetUsers.recordset) {
+                        // إرسال الإشعار في الخلفية (بدون await عشان ما يعطلش الرد)
+                        createAndPushNotification(
+                            u.UserId,
+                            '⚠️ تنبيه غياب',
+                            message,
+                            'Absence',       // NotificationType
+                            'child_profile', // RelatedTo (عشان لما يضغط يفتح بروفايل الطفل)
+                            record.ID_Child  // RelatedID (رقم الطفل)
+                        ).catch(err => console.error("Notification Failed:", err));
+                    }
+                }
             }
         }
-        res.status(200).json({ message: 'تم حفظ الغياب بنجاح ✅' + alertMessage });
+
+        // الرد النهائي (بدون رسالة التنبيه النصية خلاص)
+        res.status(200).json({ message: 'تم حفظ الغياب بنجاح ✅' });
 
     } catch (err) {
         if (transaction._aborted === false) await transaction.rollback();
