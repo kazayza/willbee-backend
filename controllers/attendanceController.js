@@ -102,7 +102,7 @@ const saveAbsenceList = async (req, res) => {
                 alertMessage = `\n⚠️ تنبيه: تجاوز الحد المسموح: ${names}`;
             }
         }
-        res.status(200).json({ message: 'تم حفظ الغياب بنجاح ✅' });
+        res.status(200).json({ message: 'تم حفظ الغياب بنجاح ✅' + alertMessage });
 
     } catch (err) {
         if (transaction._aborted === false) await transaction.rollback();
