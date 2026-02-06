@@ -86,20 +86,20 @@ const saveAbsenceList = async (req, res) => {
                     C.ID_Child,
                     C.FullNameArabic, 
                     COUNT(*) as Count,
-                    Cl.ClassName,       -- اسم الفصل
-                    B.branchName        -- اسم الفرع
+                    ISNULL(Cl.ClassName, 'فصل غير محدد') as ClassName,
+                    ISNULL(B.branchName, 'فرع غير محدد') as branchName
                 FROM tbl_absenceDetalis D
                 INNER JOIN tbl_absenseChild M ON D.ID = M.ID
                 INNER JOIN tbl_Child C ON D.Child_code = C.ID_Child
-                -- انضمام عشان نجيب الفصل الحالي والفرع
-                INNER JOIN tbl_ChildClassHistory H ON C.ID_Child = H.Child_ID
-                INNER JOIN tbl_Classroom Cl ON H.Class_ID = Cl.Class_ID
-                INNER JOIN tbl_Branch B ON C.Branch = B.IDbranch
+                
+                -- نستخدم LEFT JOIN عشان لو ملوش فصل ميضربش الكويري
+                LEFT JOIN tbl_ChildClassHistory H ON C.ID_Child = H.Child_ID AND H.LeaveDate IS NULL
+                LEFT JOIN tbl_Classroom Cl ON H.Class_ID = Cl.Class_ID
+                LEFT JOIN tbl_Branch B ON C.Branch = B.IDbranch
                 
                 WHERE D.Child_code IN (${ids})
                 AND MONTH(M.Databsense) = MONTH(@date)
                 AND YEAR(M.Databsense) = YEAR(@date)
-                AND H.LeaveDate IS NULL -- شرط مهم: الفصل الحالي فقط
                 
                 GROUP BY C.ID_Child, C.FullNameArabic, Cl.ClassName, B.branchName
                 HAVING COUNT(*) > 3
