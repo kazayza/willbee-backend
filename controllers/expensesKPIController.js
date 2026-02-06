@@ -932,12 +932,13 @@ const getExpensesKPI = async (req, res) => {
         });
 
     } catch (err) {
-        console.error('ExpensesKPI Error:', err);
-        res.status(500).json({
-            error: 'حدث خطأ في جلب مؤشرات الأداء',
-            details: process.env.NODE_ENV === 'development' ? err.message : undefined
-        });
-    }
+    console.error('ExpenseFilters Error:', err);
+    res.status(500).json({
+        error: 'حدث خطأ في جلب الفلاتر',
+        details: err.message,
+        stack: err.stack
+    });
+}
 };
 
 // ════════════════════════════════════════════════════════════
@@ -973,13 +974,14 @@ const getExpenseFilters = async (req, res) => {
             kinds: kindsResult.recordset
         });
 
-    } catch (err) {
-        console.error('ExpenseFilters Error:', err);
-        res.status(500).json({
-            error: 'حدث خطأ في جلب الفلاتر',
-            details: process.env.NODE_ENV === 'development' ? err.message : undefined
-        });
-    }
+} catch (err) {
+    console.error('ExpensesKPI Error:', err);
+    res.status(500).json({
+        error: 'حدث خطأ في جلب مؤشرات الأداء',
+        details: err.message,
+        stack: err.stack
+    });
+}
 };
 
 module.exports = { getExpensesKPI, getExpenseFilters };
