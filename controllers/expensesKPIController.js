@@ -123,9 +123,7 @@ const generateFinancialAnalysis = (data) => {
     const lyChange = calcChange(totalCurrent, totalLastYear);
     const direction = prevChange > 0 ? 'بزيادة' : 'بانخفاض';
 
-    // ──────────────────────────────────────────
     // 1. الملخص التنفيذي
-    // ──────────────────────────────────────────
     const topIncreaseGroup = groupsData
         .filter(g => g.vsPrevious.change > 0)
         .sort((a, b) => b.vsPrevious.change - a.vsPrevious.change)[0];
@@ -137,9 +135,7 @@ const generateFinancialAnalysis = (data) => {
 
     analysis.executiveSummary = `بلغ إجمالي المصروفات التشغيلية للفترة الحالية ${totalCurrent.toLocaleString()} ج.م ${direction} قدرها ${Math.abs(prevChange)}% عن الفترة المماثلة من الشهر السابق (${totalPrevious.toLocaleString()} ج.م)${mainCause}.`;
 
-    // ──────────────────────────────────────────
     // 2. تحليل الانحرافات
-    // ──────────────────────────────────────────
     const significantChanges = groupsData
         .filter(g => Math.abs(g.vsPrevious.change) > 15)
         .sort((a, b) => Math.abs(b.vsPrevious.change) - Math.abs(a.vsPrevious.change));
@@ -161,11 +157,7 @@ const generateFinancialAnalysis = (data) => {
         analysis.deviationAnalysis.push('لم تُسجل انحرافات جوهرية تتجاوز 15% في أي من بنود المصروفات خلال الفترة الحالية.');
     }
 
-    // ──────────────────────────────────────────
     // 3. تحليل المخاطر والتركز
-    // ──────────────────────────────────────────
-
-    // تركز الفروع
     if (branchesData.length > 0) {
         const topBranch = branchesData[0];
         const topBranchPercent = totalCurrent > 0
@@ -179,7 +171,6 @@ const generateFinancialAnalysis = (data) => {
         }
     }
 
-    // قفزات غير طبيعية
     groupsData.forEach(group => {
         if (group.vsPrevious.change > 50) {
             analysis.riskAnalysis.push(
@@ -188,7 +179,6 @@ const generateFinancialAnalysis = (data) => {
         }
     });
 
-    // مصروف فردي غير عادي
     if (advanced && advanced.maxSingleExpense > advanced.avgPerTransaction * 5) {
         analysis.riskAnalysis.push(
             `رُصدت عملية صرف فردية بمبلغ ${advanced.maxSingleExpense.toLocaleString()} ج.م وهي تتجاوز 5 أضعاف المتوسط العام للمعاملات (${advanced.avgPerTransaction.toLocaleString()} ج.م).`
@@ -199,9 +189,7 @@ const generateFinancialAnalysis = (data) => {
         analysis.riskAnalysis.push('لم تُرصد مخاطر تشغيلية أو انحرافات غير اعتيادية خلال الفترة الحالية.');
     }
 
-    // ──────────────────────────────────────────
     // 4. النقاط الإيجابية
-    // ──────────────────────────────────────────
     const savings = groupsData
         .filter(g => g.vsPrevious.change < -10)
         .sort((a, b) => a.vsPrevious.change - b.vsPrevious.change);
@@ -223,9 +211,7 @@ const generateFinancialAnalysis = (data) => {
         analysis.positivePoints.push('لم تُسجل تحسينات ملموسة في بنود المصروفات خلال هذه الفترة، يُنصح بمراجعة سياسات الإنفاق.');
     }
 
-    // ──────────────────────────────────────────
     // 5. التوقعات
-    // ──────────────────────────────────────────
     if (forecast) {
         analysis.forecast = `بناءً على معدل الإنفاق اليومي الحالي البالغ ${forecast.dailyAverage.toLocaleString()} ج.م، يُتوقع أن يصل إجمالي المصروفات بنهاية الشهر إلى ${forecast.projectedTotal.toLocaleString()} ج.م. `;
 
@@ -236,9 +222,7 @@ const generateFinancialAnalysis = (data) => {
         }
     }
 
-    // ──────────────────────────────────────────
     // 6. المقارنة السنوية
-    // ──────────────────────────────────────────
     if (totalLastYear > 0) {
         const yearDirection = lyChange > 0 ? 'ارتفاعاً' : 'انخفاضاً';
         analysis.yearComparison = `مقارنة بنفس الفترة من العام السابق (${totalLastYear.toLocaleString()} ج.م)، سجلت المصروفات ${yearDirection} بنسبة ${Math.abs(lyChange)}%. `;
@@ -252,9 +236,7 @@ const generateFinancialAnalysis = (data) => {
         }
     }
 
-    // ──────────────────────────────────────────
     // 7. التوصيات
-    // ──────────────────────────────────────────
     if (prevChange > 30) {
         analysis.recommendations.push('مراجعة فورية لبنود المصروفات التي سجلت ارتفاعات تتجاوز 30% والتحقق من أسبابها.');
     }
@@ -294,32 +276,27 @@ const generateSmartInsights = (data) => {
 
     const insights = [];
 
-    // 1. الاتجاه العام
     const overallChange = calcChange(totalCurrent, totalPrevious);
     if (overallChange > 0) {
         insights.push({
-            type: 'warning',
-            icon: '⚠️',
+            type: 'warning', icon: '⚠️',
             title: 'زيادة في المصروفات',
             message: `ارتفاع ${overallChange}% مقارنة بالفترة السابقة`,
             priority: 'high'
         });
     } else if (overallChange < 0) {
         insights.push({
-            type: 'success',
-            icon: '✅',
+            type: 'success', icon: '✅',
             title: 'انخفاض في المصروفات',
             message: `توفير ${Math.abs(overallChange)}% مقارنة بالفترة السابقة`,
             priority: 'low'
         });
     }
 
-    // 2. قفزات البنود
     groupsData.forEach(group => {
         if (group.vsPrevious.change > 50) {
             insights.push({
-                type: 'danger',
-                icon: '🔥',
+                type: 'danger', icon: '🔥',
                 title: `قفزة في "${group.group}"`,
                 message: `ارتفاع ${group.vsPrevious.change}% يستدعي المراجعة`,
                 priority: 'high'
@@ -327,8 +304,7 @@ const generateSmartInsights = (data) => {
         }
         if (group.vsPrevious.change < -30) {
             insights.push({
-                type: 'success',
-                icon: '💰',
+                type: 'success', icon: '💰',
                 title: `توفير في "${group.group}"`,
                 message: `انخفاض ${Math.abs(group.vsPrevious.change)}%`,
                 priority: 'low'
@@ -336,14 +312,12 @@ const generateSmartInsights = (data) => {
         }
     });
 
-    // 3. تركز الفروع
     if (branchesData.length > 0 && totalCurrent > 0) {
         const topBranch = branchesData[0];
         const branchPercent = parseFloat(((topBranch.current / totalCurrent) * 100).toFixed(1));
         if (branchPercent > 50) {
             insights.push({
-                type: 'info',
-                icon: '🏢',
+                type: 'info', icon: '🏢',
                 title: 'تركز المصروفات',
                 message: `"${topBranch.name}" يستهلك ${branchPercent}% من الإجمالي`,
                 priority: 'medium'
@@ -351,24 +325,20 @@ const generateSmartInsights = (data) => {
         }
     }
 
-    // 4. مصروف غير عادي
     if (advanced && advanced.maxSingleExpense > advanced.avgPerTransaction * 5) {
         insights.push({
-            type: 'warning',
-            icon: '⚡',
+            type: 'warning', icon: '⚡',
             title: 'مصروف فردي غير عادي',
             message: `مبلغ ${advanced.maxSingleExpense.toLocaleString()} ج.م (${(advanced.maxSingleExpense / advanced.avgPerTransaction).toFixed(1)}x المتوسط)`,
             priority: 'high'
         });
     }
 
-    // 5. توقع نهاية الشهر
     if (forecast && totalPrevious > 0) {
         const projectedChange = calcChange(forecast.projectedTotal, totalPrevious);
         if (projectedChange > 20) {
             insights.push({
-                type: 'danger',
-                icon: '🚨',
+                type: 'danger', icon: '🚨',
                 title: 'تحذير: توقع تجاوز',
                 message: `المتوقع نهاية الشهر ${forecast.projectedTotal.toLocaleString()} ج.م (+${projectedChange}%)`,
                 priority: 'high'
@@ -376,7 +346,6 @@ const generateSmartInsights = (data) => {
         }
     }
 
-    // 6. مقارنة سنوية
     if (totalLastYear > 0) {
         const yearChange = calcChange(totalCurrent, totalLastYear);
         if (Math.abs(yearChange) > 20) {
@@ -390,18 +359,15 @@ const generateSmartInsights = (data) => {
         }
     }
 
-    // 7. البند الأكثر تكراراً
     if (advanced && advanced.mostFrequentKind) {
         insights.push({
-            type: 'info',
-            icon: '🔄',
+            type: 'info', icon: '🔄',
             title: 'أكثر بند تكراراً',
             message: `"${advanced.mostFrequentKind.name}" بعدد ${advanced.mostFrequentKind.count} معاملة`,
             priority: 'low'
         });
     }
 
-    // ترتيب حسب الأولوية
     const priorityOrder = { high: 0, medium: 1, low: 2 };
     insights.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
 
@@ -415,9 +381,7 @@ const getExpensesKPI = async (req, res) => {
     const { periodType, startDate, endDate, branchId, groupId, kindId } = req.query;
 
     try {
-        // ──────────────────────────────────────
         // 1. Validation
-        // ──────────────────────────────────────
         const validPeriods = ['month', 'quarter', 'year', 'custom'];
         if (periodType && !validPeriods.includes(periodType)) {
             return res.status(400).json({
@@ -435,14 +399,10 @@ const getExpensesKPI = async (req, res) => {
             });
         }
 
-        // ──────────────────────────────────────
         // 2. حساب الفترات
-        // ──────────────────────────────────────
         const dates = calculateComparisonDates(periodType, startDate, endDate);
 
-        // ──────────────────────────────────────
         // 3. إعداد الفلاتر
-        // ──────────────────────────────────────
         let baseFilters = " AND e.Kind = N'اخرى' AND d.expenseKind <> 8";
         const params = {};
 
@@ -459,7 +419,6 @@ const getExpensesKPI = async (req, res) => {
             params.kindId = { type: sql.Int, value: parseInt(kindId) };
         }
 
-        // دالة مساعدة لإنشاء Request جديد
         const createRequest = () => {
             const request = new sql.Request();
             request.input('currStart', sql.Date, dates.current.start);
@@ -475,9 +434,7 @@ const getExpensesKPI = async (req, res) => {
             return request;
         };
 
-        // ──────────────────────────────────────
         // 4. الاستعلامات
-        // ──────────────────────────────────────
 
         // أ. المجموعات
         const groupsQuery = `
@@ -518,7 +475,7 @@ const getExpensesKPI = async (req, res) => {
             ORDER BY currentAmount DESC
         `;
 
-        // ج. التريند اليومي (الحالي + السابق)
+        // ج. التريند اليومي
         const dailyTrendQuery = `
             SELECT 
                 FORMAT(e.expenseDate, 'yyyy-MM-dd') as day,
@@ -550,7 +507,7 @@ const getExpensesKPI = async (req, res) => {
         // د. أعلى 5 بنود
         const top5Query = `
             SELECT TOP 5
-                ISNULL(k.KindName, N'غير محدد') as kindName,
+                ISNULL(k.expenseKind, N'غير محدد') as kindName,
                 ISNULL(k.KindGroup, N'أخرى') as kindGroup,
                 SUM(d.expenseAmount) as totalAmount,
                 COUNT(*) as transactionCount,
@@ -562,14 +519,14 @@ const getExpensesKPI = async (req, res) => {
             LEFT JOIN tbl_expenseKind k ON d.expenseKind = k.ID
             WHERE e.expenseDate BETWEEN @currStart AND @currEnd
             ${baseFilters}
-            GROUP BY k.KindName, k.KindGroup
+            GROUP BY k.expenseKind, k.KindGroup
             ORDER BY totalAmount DESC
         `;
 
-        // هـ. أعلى 5 بنود ارتفاعاً
+        // هـ. أعلى 5 ارتفاعاً
         const topIncreaseQuery = `
             SELECT TOP 5
-                ISNULL(k.KindName, N'غير محدد') as kindName,
+                ISNULL(k.expenseKind, N'غير محدد') as kindName,
                 SUM(CASE WHEN e.expenseDate BETWEEN @currStart AND @currEnd THEN d.expenseAmount ELSE 0 END) as currentAmount,
                 SUM(CASE WHEN e.expenseDate BETWEEN @prevStart AND @prevEnd THEN d.expenseAmount ELSE 0 END) as previousAmount,
                 CASE 
@@ -586,16 +543,16 @@ const getExpensesKPI = async (req, res) => {
             LEFT JOIN tbl_expenseKind k ON d.expenseKind = k.ID
             WHERE (e.expenseDate BETWEEN @prevStart AND @currEnd)
             ${baseFilters}
-            GROUP BY k.KindName
+            GROUP BY k.expenseKind
             HAVING SUM(CASE WHEN e.expenseDate BETWEEN @currStart AND @currEnd THEN d.expenseAmount ELSE 0 END) >
                    SUM(CASE WHEN e.expenseDate BETWEEN @prevStart AND @prevEnd THEN d.expenseAmount ELSE 0 END)
             ORDER BY changePercent DESC
         `;
 
-        // و. أعلى 5 بنود توفيراً
+        // و. أعلى 5 توفيراً
         const topSavingsQuery = `
             SELECT TOP 5
-                ISNULL(k.KindName, N'غير محدد') as kindName,
+                ISNULL(k.expenseKind, N'غير محدد') as kindName,
                 SUM(CASE WHEN e.expenseDate BETWEEN @currStart AND @currEnd THEN d.expenseAmount ELSE 0 END) as currentAmount,
                 SUM(CASE WHEN e.expenseDate BETWEEN @prevStart AND @prevEnd THEN d.expenseAmount ELSE 0 END) as previousAmount,
                 SUM(CASE WHEN e.expenseDate BETWEEN @prevStart AND @prevEnd THEN d.expenseAmount ELSE 0 END) -
@@ -614,7 +571,7 @@ const getExpensesKPI = async (req, res) => {
             LEFT JOIN tbl_expenseKind k ON d.expenseKind = k.ID
             WHERE (e.expenseDate BETWEEN @prevStart AND @currEnd)
             ${baseFilters}
-            GROUP BY k.KindName
+            GROUP BY k.expenseKind
             HAVING SUM(CASE WHEN e.expenseDate BETWEEN @currStart AND @currEnd THEN d.expenseAmount ELSE 0 END) <
                    SUM(CASE WHEN e.expenseDate BETWEEN @prevStart AND @prevEnd THEN d.expenseAmount ELSE 0 END)
             ORDER BY savedAmount DESC
@@ -656,7 +613,7 @@ const getExpensesKPI = async (req, res) => {
         // ط. أكثر بند تكراراً
         const mostFrequentQuery = `
             SELECT TOP 1
-                ISNULL(k.KindName, N'غير محدد') as kindName,
+                ISNULL(k.expenseKind, N'غير محدد') as kindName,
                 COUNT(*) as transactionCount,
                 SUM(d.expenseAmount) as totalAmount
             FROM tbl_expenses e
@@ -664,11 +621,11 @@ const getExpensesKPI = async (req, res) => {
             LEFT JOIN tbl_expenseKind k ON d.expenseKind = k.ID
             WHERE e.expenseDate BETWEEN @currStart AND @currEnd
             ${baseFilters}
-            GROUP BY k.KindName
+            GROUP BY k.expenseKind
             ORDER BY transactionCount DESC
         `;
 
-        // ي. الموسمية (آخر 12 شهر)
+        // ي. الموسمية
         const seasonalQuery = `
             SELECT 
                 FORMAT(e.expenseDate, 'yyyy-MM') as month,
@@ -685,9 +642,7 @@ const getExpensesKPI = async (req, res) => {
             ORDER BY month ASC
         `;
 
-        // ──────────────────────────────────────
-        // 5. تنفيذ كل الاستعلامات بالتوازي
-        // ──────────────────────────────────────
+        // 5. تنفيذ الاستعلامات
         const [
             groupsResult,
             branchesResult,
@@ -712,14 +667,11 @@ const getExpensesKPI = async (req, res) => {
             createRequest().query(seasonalQuery)
         ]);
 
-        // ──────────────────────────────────────
         // 6. معالجة البيانات
-        // ──────────────────────────────────────
         let totalCurrent = 0, totalPrevious = 0, totalLastYear = 0;
         let groupsData = [];
         let branchesData = [];
 
-        // معالجة المجموعات
         groupsResult.recordset.forEach(row => {
             totalCurrent += row.currentAmount || 0;
             totalPrevious += row.previousAmount || 0;
@@ -741,7 +693,6 @@ const getExpensesKPI = async (req, res) => {
             }
         });
 
-        // معالجة الفروع
         branchesResult.recordset.forEach(row => {
             if (row.currentAmount > 0 || row.previousAmount > 0 || row.lastYearAmount > 0) {
                 branchesData.push({
@@ -762,7 +713,6 @@ const getExpensesKPI = async (req, res) => {
             }
         });
 
-        // معالجة التريند اليومي
         const dailyTrend = {
             current: dailyResult.recordset
                 .filter(r => r.period === 'current')
@@ -772,7 +722,6 @@ const getExpensesKPI = async (req, res) => {
                 .map(r => ({ day: r.day, amount: r.amount }))
         };
 
-        // المؤشرات المتقدمة
         const advancedData = advancedResult.recordset[0] || {};
         const advanced = {
             avgPerTransaction: parseFloat((advancedData.avgPerTransaction || 0).toFixed(2)),
@@ -790,7 +739,6 @@ const getExpensesKPI = async (req, res) => {
                 : null
         };
 
-        // التوقعات
         const daysInMonth = new Date(
             dates.current.start.getFullYear(),
             dates.current.start.getMonth() + 1,
@@ -810,7 +758,6 @@ const getExpensesKPI = async (req, res) => {
             daysInMonth
         };
 
-        // توزيع المجموعات (للـ Pie Chart)
         const groupDistribution = groupsData.map(g => ({
             group: g.group,
             amount: g.current,
@@ -819,35 +766,24 @@ const getExpensesKPI = async (req, res) => {
                 : 0
         }));
 
-        // ──────────────────────────────────────
-        // 7. التنبيهات الذكية
-        // ──────────────────────────────────────
         const insights = generateSmartInsights({
             totalCurrent, totalPrevious, totalLastYear,
             groupsData, branchesData, advanced, forecast
         });
 
-        // ──────────────────────────────────────
-        // 8. التحليل المالي الاحترافي
-        // ──────────────────────────────────────
         const financialAnalysis = generateFinancialAnalysis({
             totalCurrent, totalPrevious, totalLastYear,
             groupsData, branchesData, advanced, forecast, dates
         });
 
-        // ──────────────────────────────────────
-        // 9. إرسال الرد النهائي
-        // ──────────────────────────────────────
+        // 7. Response
         res.status(200).json({
-            // الفترات
             dates: {
                 current: dates.current,
                 previous: dates.previous,
                 lastYear: dates.lastYear,
                 meta: dates.meta
             },
-
-            // الملخص العام
             summary: {
                 totalCurrent,
                 vsPrevious: {
@@ -863,23 +799,11 @@ const getExpensesKPI = async (req, res) => {
                     trend: totalCurrent >= totalLastYear ? 'up' : 'down'
                 }
             },
-
-            // التوقعات
             forecast,
-
-            // المؤشرات المتقدمة
             advanced,
-
-            // تحليل المجموعات
             groupsData,
-
-            // توزيع المجموعات (Pie Chart)
             groupDistribution,
-
-            // تحليل الفروع
             branchesData,
-
-            // أعلى 5 بنود
             top5Expenses: top5Result.recordset.map(r => ({
                 name: r.kindName,
                 group: r.kindGroup,
@@ -887,16 +811,12 @@ const getExpensesKPI = async (req, res) => {
                 transactions: r.transactionCount,
                 percent: r.percentOfTotal
             })),
-
-            // أعلى 5 ارتفاعاً
             topIncreases: topIncreaseResult.recordset.map(r => ({
                 name: r.kindName,
                 current: r.currentAmount,
                 previous: r.previousAmount,
                 change: r.changePercent
             })),
-
-            // أعلى 5 توفيراً
             topSavings: topSavingsResult.recordset.map(r => ({
                 name: r.kindName,
                 current: r.currentAmount,
@@ -904,8 +824,6 @@ const getExpensesKPI = async (req, res) => {
                 saved: r.savedAmount,
                 savingPercent: r.savingPercent
             })),
-
-            // الرسوم البيانية
             charts: {
                 dailyTrend,
                 weekdayAnalysis: weekdayResult.recordset.map(r => ({
@@ -923,33 +841,27 @@ const getExpensesKPI = async (req, res) => {
                     transactions: r.transactionCount
                 }))
             },
-
-            // التنبيهات الذكية
             insights,
-
-            // التحليل المالي الاحترافي
             financialAnalysis
         });
 
     } catch (err) {
-    console.error('ExpenseFilters Error:', err);
-    res.status(500).json({
-        error: 'حدث خطأ في جلب الفلاتر',
-        details: err.message,
-        stack: err.stack
-    });
-}
+        console.error('ExpensesKPI Error:', err);
+        res.status(500).json({
+            error: 'حدث خطأ في جلب مؤشرات الأداء',
+            details: err.message,
+            stack: err.stack
+        });
+    }
 };
 
 // ════════════════════════════════════════════════════════════
-// 📋 دالة جلب الفلاتر المتاحة (للـ Dropdowns في Flutter)
+// 📋 الفلاتر المتاحة
 // ════════════════════════════════════════════════════════════
 const getExpenseFilters = async (req, res) => {
     try {
-        const request = new sql.Request();
-
         const [branchesResult, groupsResult, kindsResult] = await Promise.all([
-            request.query(`
+            new sql.Request().query(`
                 SELECT DISTINCT b.IDbranch as id, b.branchName as name
                 FROM tbl_Branch b
                 ORDER BY b.branchName
@@ -961,10 +873,10 @@ const getExpenseFilters = async (req, res) => {
                 ORDER BY k.KindGroup
             `),
             new sql.Request().query(`
-                SELECT k.ID as id, k.KindName as name, k.KindGroup as groupName
+                SELECT k.ID as id, k.expenseKind as name, k.KindGroup as groupName
                 FROM tbl_expenseKind k
                 WHERE k.ID <> 8
-                ORDER BY k.KindGroup, k.KindName
+                ORDER BY k.KindGroup, k.expenseKind
             `)
         ]);
 
@@ -974,14 +886,29 @@ const getExpenseFilters = async (req, res) => {
             kinds: kindsResult.recordset
         });
 
-} catch (err) {
-    console.error('ExpensesKPI Error:', err);
-    res.status(500).json({
-        error: 'حدث خطأ في جلب مؤشرات الأداء',
-        details: err.message,
-        stack: err.stack
-    });
-}
+    } catch (err) {
+        console.error('ExpenseFilters Error:', err);
+        res.status(500).json({
+            error: 'حدث خطأ في جلب الفلاتر',
+            details: err.message,
+            stack: err.stack
+        });
+    }
 };
 
-module.exports = { getExpensesKPI, getExpenseFilters };
+const getTableColumns = async (req, res) => {
+    try {
+        const request = new sql.Request();
+        const result = await request.query(`
+            SELECT COLUMN_NAME, DATA_TYPE, TABLE_NAME
+            FROM INFORMATION_SCHEMA.COLUMNS 
+            WHERE TABLE_NAME IN ('tbl_expenseKind', 'tbl_expenses', 'tbl_ExpensesDetalis', 'tbl_Branch')
+            ORDER BY TABLE_NAME, ORDINAL_POSITION
+        `);
+        res.status(200).json(result.recordset);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+module.exports = { getExpensesKPI, getExpenseFilters, getTableColumns };
