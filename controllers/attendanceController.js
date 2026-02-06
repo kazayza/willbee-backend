@@ -82,14 +82,26 @@ const saveAbsenceList = async (req, res) => {
             
             // كويري يجيب الأطفال اللي غابوا أكتر من 3 مرات في نفس الشهر
             const alertQuery = `
-                SELECT C.FullNameArabic, COUNT(*) as Count, C.ID_Child
+                SELECT 
+                    C.ID_Child,
+                    C.FullNameArabic, 
+                    COUNT(*) as Count,
+                    Cl.ClassName,       -- اسم الفصل
+                    B.branchName        -- اسم الفرع
                 FROM tbl_absenceDetalis D
                 INNER JOIN tbl_absenseChild M ON D.ID = M.ID
                 INNER JOIN tbl_Child C ON D.Child_code = C.ID_Child
+                -- انضمام عشان نجيب الفصل الحالي والفرع
+                INNER JOIN tbl_ChildClassHistory H ON C.ID_Child = H.Child_ID
+                INNER JOIN tbl_Classroom Cl ON H.Class_ID = Cl.Class_ID
+                INNER JOIN tbl_Branch B ON C.Branch = B.IDbranch
+                
                 WHERE D.Child_code IN (${ids})
                 AND MONTH(M.Databsense) = MONTH(@date)
                 AND YEAR(M.Databsense) = YEAR(@date)
-                GROUP BY C.FullNameArabic, C.ID_Child
+                AND H.LeaveDate IS NULL -- شرط مهم: الفصل الحالي فقط
+                
+                GROUP BY C.ID_Child, C.FullNameArabic, Cl.ClassName, B.branchName
                 HAVING COUNT(*) > 3
             `;
             
@@ -107,19 +119,19 @@ const saveAbsenceList = async (req, res) => {
                     WHERE Role IN ('Admin', 'PRUser') -- 👈 التعديل حسب طلبك
                 `);
 
-                // 3. إرسال الإشعارات
+                 // 3. إرسال الإشعارات
                 for (const record of alertResult.recordset) {
-                    const message = `تجاوز الطالب "${record.FullNameArabic}" حد الغياب (${record.Count} أيام)`;
+                    // الرسالة التفصيلية الجديدة
+                    const message = `تجاوز الطالب "${record.FullNameArabic}" (${record.branchName} - ${record.ClassName}) حد الغياب (${record.Count} أيام)`;
                     
                     for (const u of targetUsers.recordset) {
-                        // إرسال الإشعار في الخلفية (بدون await عشان ما يعطلش الرد)
                         createAndPushNotification(
                             u.UserId,
-                            '⚠️ تنبيه غياب',
+                            '⚠️ تنبيه غياب متكرر',
                             message,
-                            'Absence',       // NotificationType
-                            'child_profile', // RelatedTo (عشان لما يضغط يفتح بروفايل الطفل)
-                            record.ID_Child  // RelatedID (رقم الطفل)
+                            'Absence',
+                            'child_profile',
+                            record.ID_Child
                         ).catch(err => console.error("Notification Failed:", err));
                     }
                 }
