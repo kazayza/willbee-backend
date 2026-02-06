@@ -1,7 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const controller = require('../controllers/expensesKPIController');
+const { getExpensesKPI, getExpenseFilters } = require('../controllers/expensesKPIController');
 
-router.get('/dashboard', controller.getExpensesKPI);
+// مؤشرات أداء المصروفات
+router.get('/kpi', getExpensesKPI);
+
+// الفلاتر المتاحة
+router.get('/filters', getExpenseFilters);
 
 module.exports = router;
