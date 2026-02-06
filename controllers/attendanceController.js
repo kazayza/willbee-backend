@@ -1,5 +1,5 @@
 const { sql } = require('../config/db');
-const { createAndPushNotification } = require('../utils/notificationHelper');
+const { createAndPushNotification } = require('./notificationController');
 
 // 1. حفظ قائمة الغائبين (تسجيل جديد أو تعديل)
 // 1. حفظ قائمة الغائبين (مع دعم تعدد الفصول)
