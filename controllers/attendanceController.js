@@ -1,10 +1,7 @@
 const { sql } = require('../config/db');
 
-// 1. حفظ قائمة الغائبين (تسجيل جديد أو تعديل يوم سابق)
+// 1. حفظ قائمة الغائبين (تسجيل جديد أو تعديل)
 const saveAbsenceList = async (req, res) => {
-    // actionTime: توقيت الموبايل لحظة الضغط
-    // date: تاريخ يوم الغياب (ممكن يكون النهاردة أو امبارح)
-    // absentChildren: مصفوفة فيها أرقام الأطفال الغائبين فقط [{childId, notes}]
     const { date, user, actionTime, absentChildren } = req.body;
 
     const transaction = new sql.Transaction();
@@ -13,44 +10,37 @@ const saveAbsenceList = async (req, res) => {
         await transaction.begin();
         let masterID;
 
-        // 1. البحث: هل تم تسجيل غياب لهذا اليوم من قبل؟
+        // أ. البحث عن سجل اليوم
         const checkRequest = new sql.Request(transaction);
-        checkRequest.input('date', sql.Date, date); // بنبحث بالتاريخ فقط
+        checkRequest.input('date', sql.Date, date);
         
         const checkResult = await checkRequest.query(`
             SELECT ID FROM tbl_absenseChild WHERE CAST(Databsense AS DATE) = @date
         `);
 
         if (checkResult.recordset.length > 0) {
-            // ===========================
-            // حالة أ: اليوم ده موجود (تعديل)
-            // ===========================
+            // تحديث (Update)
             masterID = checkResult.recordset[0].ID;
-
             const updateRequest = new sql.Request(transaction);
             updateRequest.input('id', sql.Int, masterID);
             updateRequest.input('user', sql.VarChar, user);
-            updateRequest.input('time', sql.DateTime, actionTime); // توقيت الموبايل
+            updateRequest.input('time', sql.DateTime, actionTime);
 
-            // بنحدث بس مين اللي عدل وامتى
             await updateRequest.query(`
                 UPDATE tbl_absenseChild 
                 SET useredit = @user, editTime = @time 
                 WHERE ID = @id
             `);
 
-            // بنمسح التفاصيل القديمة عشان نحط الجديد (Clean Slate)
-            // ده بيضمن إن لو طفل كان غياب واتشال من القائمة، يتمسح من الداتا بيز
+            // مسح التفاصيل القديمة (عشان نسجل الحالة الجديدة النظيفة)
             await updateRequest.query(`DELETE FROM tbl_absenceDetalis WHERE ID = @id`);
 
         } else {
-            // ===========================
-            // حالة ب: تسجيل أول مرة لليوم ده (جديد)
-            // ===========================
+            // جديد (Insert)
             const insertRequest = new sql.Request(transaction);
             insertRequest.input('date', sql.DateTime, date);
             insertRequest.input('user', sql.VarChar, user);
-            insertRequest.input('time', sql.DateTime, actionTime); // توقيت الموبايل
+            insertRequest.input('time', sql.DateTime, actionTime);
 
             const insertResult = await insertRequest.query(`
                 INSERT INTO tbl_absenseChild (Databsense, userAdd, Addtime)
@@ -61,16 +51,14 @@ const saveAbsenceList = async (req, res) => {
             masterID = insertResult.recordset[0].ID;
         }
 
-        // 2. تسجيل قائمة الغائبين (Loop)
+        // ب. تسجيل الغائبين فقط (Loop)
         if (absentChildren && absentChildren.length > 0) {
             for (const child of absentChildren) {
                 const detailRequest = new sql.Request(transaction);
+                
                 detailRequest.input('masterID', sql.Int, masterID);
                 detailRequest.input('childId', sql.Int, child.childId);
-                // بنسجل 0 لأن الجدول اسمه AbsenceDetails فالوجود فيه يعني غياب
-                // أو حسب المنطق بتاعك (لو 1 غياب يبقى نبعت 1)
-                // هنا افترضنا الوجود في الجدول = غياب
-                requestDetail.input('status', sql.Bit, 1); 
+                detailRequest.input('status', sql.Bit, 1); // 1 = غياب
                 detailRequest.input('notes', sql.VarChar, child.notes || '');
 
                 await detailRequest.query(`
@@ -81,16 +69,16 @@ const saveAbsenceList = async (req, res) => {
         }
 
         await transaction.commit();
-        res.status(200).json({ message: 'تم تحديث سجل الغياب بنجاح ✅', recordId: masterID });
+        res.status(200).json({ message: 'تم حفظ الغياب بنجاح ✅', recordId: masterID });
 
     } catch (err) {
         if (transaction._aborted === false) await transaction.rollback();
         console.error(err);
-        res.status(500).json({ message: 'حدث خطأ أثناء الحفظ', error: err.message });
+        res.status(500).json({ message: 'فشل حفظ الغياب', error: err.message });
     }
 };
 
-// 2. تقرير الغياب (بيجيب الغائبين فقط ليوم محدد)
+// 2. تقرير الغياب اليومي (للمدير)
 const getAbsenceReport = async (req, res) => {
     const { date, branchId, classId } = req.query;
 
@@ -104,8 +92,7 @@ const getAbsenceReport = async (req, res) => {
                 B.branchName,
                 V.ClassName,
                 D.Notes,
-                M.userAdd, M.Addtime, -- مين سجل أول مرة
-                M.useredit, M.editTime -- مين عدل وامتى
+                M.userAdd, M.editTime
             FROM tbl_absenseChild M
             JOIN tbl_absenceDetalis D ON M.ID = D.ID
             JOIN tbl_Child C ON D.Child_code = C.ID_Child
@@ -127,7 +114,75 @@ const getAbsenceReport = async (req, res) => {
     }
 };
 
+// 3. جلب طلاب الفصل + حالة الغياب (للشاشة الذكية)
+const getStudentsForAttendance = async (req, res) => {
+    const { classId, date } = req.query;
+
+    try {
+        const request = new sql.Request();
+        request.input('classId', sql.Int, classId);
+        request.input('date', sql.Date, date);
+
+        // الاستعلام ده بيجيب كل طلاب الفصل، ويعمل Join مع جدول الغياب
+        // عشان يرجعلك (IsAbsent = 1) لو الطالب ده متسجل غياب النهاردة
+        const query = `
+            SELECT 
+                C.ID_Child,
+                C.FullNameArabic,
+                C.Age,
+                CASE WHEN D.Absence IS NOT NULL THEN 1 ELSE 0 END as IsAbsent,
+                D.Notes
+            FROM tbl_Child C
+            INNER JOIN tbl_ChildClassHistory H ON C.ID_Child = H.Child_ID
+            LEFT JOIN (
+                SELECT Detail.Child_code, Detail.Absence, Detail.Notes
+                FROM tbl_absenceDetalis Detail
+                INNER JOIN tbl_absenseChild Master ON Detail.ID = Master.ID
+                WHERE CAST(Master.Databsense AS DATE) = @date
+            ) D ON C.ID_Child = D.Child_code
+            WHERE H.Class_ID = @classId 
+              AND H.LeaveDate IS NULL
+            ORDER BY C.FullNameArabic
+        `;
+
+        const result = await request.query(query);
+        res.status(200).json(result.recordset);
+
+    } catch (err) {
+        res.status(500).json({ message: 'Error fetching students', error: err.message });
+    }
+};
+
+// 4. سجل غياب طفل معين (لبروفايل الطفل)
+const getChildAbsenceHistory = async (req, res) => {
+    const { childId } = req.params;
+
+    try {
+        const request = new sql.Request();
+        request.input('childId', sql.Int, childId);
+
+        const query = `
+            SELECT 
+                M.Databsense AS Date,
+                D.Notes,
+                M.userAdd
+            FROM tbl_absenceDetalis D
+            INNER JOIN tbl_absenseChild M ON D.ID = M.ID
+            WHERE D.Child_code = @childId
+            ORDER BY M.Databsense DESC
+        `;
+
+        const result = await request.query(query);
+        res.status(200).json(result.recordset);
+
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
 module.exports = {
     saveAbsenceList,
-    getAbsenceReport
+    getAbsenceReport,
+    getStudentsForAttendance,
+    getChildAbsenceHistory
 };
