@@ -80,7 +80,7 @@ const getBranches = async (req, res) => {
 
 // ===== 4. إضافة مصروف (مع إشعار) =====
 const addExpense = async (req, res) => {
-    const { amount, byan, date, user, kindId, branchId } = req.body;
+    const { amount, byan, date, user, kindId, branchId, addTime } = req.body;
 
     const transaction = new sql.Transaction();
 
@@ -92,11 +92,12 @@ const addExpense = async (req, res) => {
         requestHead.input('date', sql.DateTime, date || new Date());
         requestHead.input('user', sql.NVarChar, user || 'AppUser');
         requestHead.input('kindText', sql.NVarChar, 'اخرى');
+        requestHead.input('addTime', sql.DateTime, addTime || new Date());
 
         const headResult = await requestHead.query(`
             INSERT INTO tbl_expenses (expenseDate, Kind, userAdd, Addtime)
             OUTPUT inserted.ID
-            VALUES (@date, @kindText, @user, GETDATE())
+            VALUES (@date, @kindText, @user, @addTime)
         `);
 
         const newExpenseID = headResult.recordset[0].ID;
@@ -139,7 +140,7 @@ const addExpense = async (req, res) => {
 // ===== 5. تعديل مصروف (مع إشعار) =====
 const updateExpense = async (req, res) => {
     const { id } = req.params;
-    const { amount, byan, date, kindId, branchId, user } = req.body;
+    const { amount, byan, date, kindId, branchId, user, editTime } = req.body;
 
     const transaction = new sql.Transaction();
 
@@ -150,10 +151,11 @@ const updateExpense = async (req, res) => {
         requestHead.input('id', sql.Int, parseInt(id));
         requestHead.input('date', sql.DateTime, date ? new Date(date) : new Date());
         requestHead.input('user', sql.NVarChar, user || 'AppUser');
+        requestHead.input('editTime', sql.DateTime, editTime || new Date()); 
 
         await requestHead.query(`
             UPDATE tbl_expenses 
-            SET expenseDate = @date, useredit = @user, editTime = GETDATE()
+            SET expenseDate = @date, useredit = @user, editTime = @editTime
             WHERE ID = @id
         `);
 
