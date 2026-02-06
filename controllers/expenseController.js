@@ -1,6 +1,34 @@
 const { sql } = require('../config/db');
+const { createAndPushNotification } = require('./notificationController'); // 👈 استيراد الإشعارات
 
-// ===== 1. عرض المصروفات =====
+// ═══════════════════════════════════════════════════════════════
+// 🔔 دالة الإشعارات المساعدة (نفس نسخة الإيرادات)
+// ═══════════════════════════════════════════════════════════════
+const notifyAdminsAndAccountants = async (title, message, type, relatedTo, relatedId) => {
+    try {
+        const request = new sql.Request();
+        // بنبعت للمدير (Admin) والمحاسب (AccountantUser)
+        const result = await request.query(`
+            SELECT UserId FROM tbl_users 
+            WHERE Role IN ('Admin', 'AccountantUser')
+        `);
+
+        for (const user of result.recordset) {
+            await createAndPushNotification(
+                user.UserId,
+                title,
+                message,
+                type,
+                relatedTo,
+                relatedId
+            );
+        }
+    } catch (err) {
+        console.error('❌ Notification Error:', err.message);
+    }
+};
+
+// ===== 1. عرض المصروفات (مع الفلترة المطلوبة) =====
 const getAllExpenses = async (req, res) => {
     try {
         const query = `
@@ -12,13 +40,13 @@ const getAllExpenses = async (req, res) => {
                 d.expenseAmount, 
                 d.Byan,
                 e.userAdd,
-                e.Addtime,
-                e.useredit,
-                e.editTime
+                e.Addtime
             FROM tbl_expenses e
             INNER JOIN tbl_ExpensesDetalis d ON e.ID = d.IDExpense
             LEFT JOIN tbl_expenseKind k ON d.expenseKind = k.ID
             LEFT JOIN tbl_Branch b ON d.expenseBranchtxt = b.IDbranch
+            WHERE e.Kind = 'اخرى'        -- 👈 الفلتر الأول: النوع الرئيسي
+              AND d.expenseKind <> 8     -- 👈 الفلتر الثاني: استبعاد النوع الفرعي 8
             ORDER BY e.expenseDate DESC
         `;
         const result = await sql.query(query);
@@ -29,10 +57,11 @@ const getAllExpenses = async (req, res) => {
     }
 };
 
-// ===== 2. جلب أنواع المصروفات =====
+// ===== 2. جلب أنواع المصروفات (استبعاد رقم 8 أيضاً) =====
 const getExpenseKinds = async (req, res) => {
     try {
-        const result = await sql.query('SELECT ID, expenseKind, KindGroup FROM tbl_expenseKind ORDER BY KindGroup, expenseKind');
+        // بنستبعد رقم 8 من القائمة عشان محدش يختاره بالغلط
+        const result = await sql.query('SELECT ID, expenseKind, KindGroup FROM tbl_expenseKind WHERE ID <> 8 ORDER BY KindGroup, expenseKind');
         res.status(200).json(result.recordset);
     } catch (err) {
         res.status(500).json({ message: 'Error fetching kinds', error: err.message });
@@ -49,7 +78,7 @@ const getBranches = async (req, res) => {
     }
 };
 
-// ===== 4. إضافة مصروف =====
+// ===== 4. إضافة مصروف (مع إشعار) =====
 const addExpense = async (req, res) => {
     const { amount, byan, date, user, kindId, branchId } = req.body;
 
@@ -58,7 +87,7 @@ const addExpense = async (req, res) => {
     try {
         await transaction.begin();
 
-        // تسجيل رأس الفاتورة
+        // تسجيل الرأس
         const requestHead = new sql.Request(transaction);
         requestHead.input('date', sql.DateTime, date || new Date());
         requestHead.input('user', sql.NVarChar, user || 'AppUser');
@@ -88,10 +117,17 @@ const addExpense = async (req, res) => {
         `);
 
         await transaction.commit();
-        res.status(201).json({ 
-            message: 'تم تسجيل المصروف بنجاح ✅', 
-            id: newExpenseID 
-        });
+
+        // 🔔 إرسال الإشعار
+        await notifyAdminsAndAccountants(
+            '💸 مصروف جديد',
+            `تم صرف ${amount} ج.م (${byan || 'بدون بيان'}) بواسطة ${user}`,
+            'Expense',
+            'expense',
+            newExpenseID
+        );
+
+        res.status(201).json({ message: 'تم تسجيل المصروف بنجاح ✅', id: newExpenseID });
 
     } catch (err) {
         await transaction.rollback();
@@ -100,7 +136,7 @@ const addExpense = async (req, res) => {
     }
 };
 
-// ===== 5. تعديل مصروف ✅ =====
+// ===== 5. تعديل مصروف (مع إشعار) =====
 const updateExpense = async (req, res) => {
     const { id } = req.params;
     const { amount, byan, date, kindId, branchId, user } = req.body;
@@ -110,7 +146,6 @@ const updateExpense = async (req, res) => {
     try {
         await transaction.begin();
 
-        // تحديث رأس الفاتورة
         const requestHead = new sql.Request(transaction);
         requestHead.input('id', sql.Int, parseInt(id));
         requestHead.input('date', sql.DateTime, date ? new Date(date) : new Date());
@@ -118,13 +153,10 @@ const updateExpense = async (req, res) => {
 
         await requestHead.query(`
             UPDATE tbl_expenses 
-            SET expenseDate = @date,
-                useredit = @user,
-                editTime = GETDATE()
+            SET expenseDate = @date, useredit = @user, editTime = GETDATE()
             WHERE ID = @id
         `);
 
-        // تحديث التفاصيل
         const requestDetail = new sql.Request(transaction);
         requestDetail.input('expID', sql.Int, parseInt(id));
         requestDetail.input('amount', sql.Decimal(18, 2), amount);
@@ -134,14 +166,21 @@ const updateExpense = async (req, res) => {
 
         await requestDetail.query(`
             UPDATE tbl_ExpensesDetalis 
-            SET expenseAmount = @amount,
-                Byan = @byan,
-                expenseKind = @kind,
-                expenseBranchtxt = @branch
+            SET expenseAmount = @amount, Byan = @byan, expenseKind = @kind, expenseBranchtxt = @branch
             WHERE IDExpense = @expID
         `);
 
         await transaction.commit();
+
+        // 🔔 إرسال الإشعار
+        await notifyAdminsAndAccountants(
+            '✏️ تعديل مصروف',
+            `تم تعديل مصروف رقم #${id} (${amount} ج.م) بواسطة ${user}`,
+            'Expense',
+            'expense',
+            parseInt(id)
+        );
+
         res.status(200).json({ message: 'تم تحديث المصروف بنجاح ✅' });
 
     } catch (err) {
@@ -151,7 +190,7 @@ const updateExpense = async (req, res) => {
     }
 };
 
-// ===== 6. حذف مصروف ✅ =====
+// ===== 6. حذف مصروف (مع جلب البيانات قبل الحذف للإشعار) =====
 const deleteExpense = async (req, res) => {
     const { id } = req.params;
 
@@ -160,17 +199,43 @@ const deleteExpense = async (req, res) => {
     try {
         await transaction.begin();
 
-        // حذف التفاصيل أولاً (بسبب العلاقة)
+        // 🔍 جلب البيانات قبل الحذف (عشان الإشعار)
+        const getDataRequest = new sql.Request(transaction);
+        getDataRequest.input('id', sql.Int, parseInt(id));
+        const expenseData = await getDataRequest.query(`
+            SELECT expenseAmount, Byan FROM tbl_ExpensesDetalis WHERE IDExpense = @id
+        `);
+        
+        const amount = expenseData.recordset[0]?.expenseAmount || 0;
+        const byan = expenseData.recordset[0]?.Byan || 'مصروف';
+
+        // الحذف
         const requestDetail = new sql.Request(transaction);
         requestDetail.input('expID', sql.Int, parseInt(id));
         await requestDetail.query('DELETE FROM tbl_ExpensesDetalis WHERE IDExpense = @expID');
 
-        // حذف رأس الفاتورة
         const requestHead = new sql.Request(transaction);
         requestHead.input('id', sql.Int, parseInt(id));
         await requestHead.query('DELETE FROM tbl_expenses WHERE ID = @id');
 
         await transaction.commit();
+
+        // 🔔 إرسال الإشعار (للمديرين فقط زي الإيرادات)
+        // وممكن نبعته للمحاسب كمان لو تحب، بس الكود هنا زي الإيرادات للمديرين
+        const adminRequest = new sql.Request();
+        const admins = await adminRequest.query(`SELECT UserId FROM tbl_users WHERE Role = 'Admin'`);
+
+        for (const admin of admins.recordset) {
+            await createAndPushNotification(
+                admin.UserId,
+                '🗑️ حذف مصروف',
+                `تم حذف مصروف "${byan}" بمبلغ ${amount} ج.م`,
+                'Expense',
+                'expense',
+                parseInt(id)
+            );
+        }
+
         res.status(200).json({ message: 'تم حذف المصروف بنجاح ✅' });
 
     } catch (err) {
