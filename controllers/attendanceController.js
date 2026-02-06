@@ -71,6 +71,37 @@ const saveAbsenceList = async (req, res) => {
         }
 
         await transaction.commit();
+        // ============================================================
+        // 🚀 الإضافة الجديدة: فحص تجاوز الحد (Alert Logic)
+        // ============================================================
+        let alertMessage = "";
+        
+        // لو فيه أطفال غايبين، نعد غيابهم في الشهر الحالي
+        if (absentChildren && absentChildren.length > 0) {
+            const ids = absentChildren.map(c => c.childId).join(',');
+            
+            // كويري بيجيب أسماء الأطفال اللي عدوا 3 أيام غياب في الشهر ده
+            const alertQuery = `
+                SELECT C.FullNameArabic, COUNT(*) as Count
+                FROM tbl_absenceDetalis D
+                INNER JOIN tbl_absenseChild M ON D.ID = M.ID
+                INNER JOIN tbl_Child C ON D.Child_code = C.ID_Child
+                WHERE D.Child_code IN (${ids})
+                AND MONTH(M.Databsense) = MONTH(@date)
+                AND YEAR(M.Databsense) = YEAR(@date)
+                GROUP BY C.FullNameArabic
+                HAVING COUNT(*) > 3
+            `;
+            
+            const requestAlert = new sql.Request();
+            requestAlert.input('date', sql.Date, date);
+            const alertResult = await requestAlert.query(alertQuery);
+
+            if (alertResult.recordset.length > 0) {
+                const names = alertResult.recordset.map(r => `${r.FullNameArabic} (${r.Count} أيام)`).join('، ');
+                alertMessage = `\n⚠️ تنبيه: تجاوز الحد المسموح: ${names}`;
+            }
+        }
         res.status(200).json({ message: 'تم حفظ الغياب بنجاح ✅' });
 
     } catch (err) {
