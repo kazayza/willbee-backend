@@ -81,37 +81,67 @@ const saveAbsenceList = async (req, res) => {
 };
 
 // 2. تقرير الغياب اليومي (للمدير)
+// 2. تقرير الغياب المتقدم (فلاتر شاملة)
 const getAbsenceReport = async (req, res) => {
-    const { date, branchId, classId } = req.query;
+    // بنستقبل المعاملات من الرابط
+    const { fromDate, toDate, branchId, classId, childId } = req.query;
 
     try {
         const request = new sql.Request();
-        request.input('date', sql.Date, date);
-
+        
+        // بناء جملة الاستعلام ديناميكياً
         let query = `
             SELECT 
                 C.FullNameArabic,
+                C.ID_Child,
                 B.branchName,
                 V.ClassName,
                 D.Notes,
-                M.userAdd, M.editTime
+                M.Databsense AS Date, -- تاريخ الغياب
+                M.userAdd
             FROM tbl_absenseChild M
             JOIN tbl_absenceDetalis D ON M.ID = D.ID
             JOIN tbl_Child C ON D.Child_code = C.ID_Child
             LEFT JOIN tbl_Branch B ON C.Branch = B.IDbranch
             LEFT JOIN vw_ChildrenCurrentClass V ON C.ID_Child = V.ID_Child
-            WHERE CAST(M.Databsense AS DATE) = @date
+            WHERE 1=1 
         `;
 
-        if (branchId) query += ` AND C.Branch = ${branchId}`;
-        if (classId) query += ` AND V.Class_ID = ${classId}`;
+        // 1. فلتر الفترة الزمنية
+        if (fromDate && toDate) {
+            request.input('from', sql.Date, fromDate);
+            request.input('to', sql.Date, toDate);
+            query += ` AND CAST(M.Databsense AS DATE) BETWEEN @from AND @to`;
+        } else if (fromDate) { // لو يوم واحد بس
+            request.input('date', sql.Date, fromDate);
+            query += ` AND CAST(M.Databsense AS DATE) = @date`;
+        }
 
-        query += ` ORDER BY B.branchName, V.ClassName, C.FullNameArabic`;
+        // 2. فلتر الفرع
+        if (branchId) {
+            request.input('branch', sql.Int, branchId);
+            query += ` AND C.Branch = @branch`;
+        }
+
+        // 3. فلتر الفصل
+        if (classId) {
+            request.input('class', sql.Int, classId);
+            query += ` AND V.Class_ID = @class`;
+        }
+
+        // 4. فلتر طفل معين (للتاريخ الشخصي)
+        if (childId) {
+            request.input('child', sql.Int, childId);
+            query += ` AND C.ID_Child = @child`;
+        }
+
+        query += ` ORDER BY M.Databsense DESC, B.branchName, V.ClassName`;
 
         const result = await request.query(query);
         res.status(200).json(result.recordset);
 
     } catch (err) {
+        console.error(err);
         res.status(500).json({ error: err.message });
     }
 };
