@@ -180,7 +180,7 @@ const createNewChild = async (req, res) => {
             (@nameAr, @nameEn, @nid, @bdate, @age, @branch, @status,
              @fName, @fMob, @mName, @mMob, @addr,
              @eName, @eMob, @notes, @allergies,
-             @fullTime, @sports, @diapers, @user, GETDATE())
+             @fullTime, @sports, @diapers, @user, GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'Egypt Standard Time')
         `);
 
         res.status(201).json({ message: 'تم حفظ ملف الطفل الجديد بنجاح ✅' });
@@ -249,7 +249,7 @@ const updateChild = async (req, res) => {
                 DoSports = @sports,
                 WearDiapers = @diapers,
                 useredit = @user,
-                editTime = GETDATE()
+                editTime = GETDATE() AT TIME ZONE 'UTC' AT TIME ZONE 'Egypt Standard Time'
             WHERE ID_Child = @id
         `);
 
