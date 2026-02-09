@@ -11,4 +11,7 @@ router.get('/child/:childId/:sessionId', debtController.getChildDebtDetails);
 // فحص الأقساط المتأخرة وإرسال إشعارات
 router.get('/check-overdue', debtController.checkOverdueInstallments);
 
+// مؤشرات الأداء المالي
+router.get('/kpi/:sessionId', debtController.getFinancialKPIs);
+
 module.exports = router;

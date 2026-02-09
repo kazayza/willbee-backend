@@ -312,8 +312,215 @@ const checkOverdueInstallments = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 4. مؤشرات الأداء المالي (KPI Dashboard)
+// ═══════════════════════════════════════════════════════════════
+const getFinancialKPIs = async (req, res) => {
+    const { sessionId } = req.params;
+
+    try {
+        const request = new sql.Request();
+        request.input('sessionId', sql.SmallInt, sessionId);
+
+        // 1️⃣ التحصيل الشهري
+        const monthlyResult = await request.query(`
+            SELECT 
+                MONTH(d.date_Pay) as payMonth,
+                YEAR(d.date_Pay) as payYear,
+                SUM(d.incomeAmount) as totalAmount,
+                COUNT(DISTINCT d.child_ID) as childrenCount
+            FROM tbl_incomeDetalis d
+            WHERE d.incomeSessiontxt = @sessionId
+              AND d.incomeKind IN (6, 7)
+              AND d.date_Pay IS NOT NULL
+            GROUP BY MONTH(d.date_Pay), YEAR(d.date_Pay)
+            ORDER BY YEAR(d.date_Pay), MONTH(d.date_Pay)
+        `);
+
+        // 2️⃣ مقارنة الفروع
+        const request2 = new sql.Request();
+        request2.input('sessionId', sql.SmallInt, sessionId);
+
+        const branchResult = await request2.query(`
+            SELECT 
+                b.IDbranch as branchId,
+                b.branchName,
+                COUNT(DISTINCT f.Child_Id) as totalChildren,
+                SUM(f.amount_Sub) as totalRequired,
+                ISNULL((
+                    SELECT SUM(d.incomeAmount)
+                    FROM tbl_incomeDetalis d
+                    INNER JOIN tbl_FinanceChild fc ON d.child_ID = fc.Child_Id 
+                        AND d.incomeSessiontxt = fc.SessionID
+                    WHERE fc.SessionID = @sessionId
+                      AND d.incomeKind IN (6, 7)
+                      AND d.incomBranchtxt = b.IDbranch
+                      AND d.incomeSessiontxt = @sessionId
+                ), 0) as totalPaid
+            FROM tbl_FinanceChild f
+            INNER JOIN tbl_Child c ON f.Child_Id = c.ID_Child
+            INNER JOIN tbl_Branch b ON c.Branch = b.IDbranch
+            WHERE f.SessionID = @sessionId
+              AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+            GROUP BY b.IDbranch, b.branchName
+            ORDER BY b.branchName
+        `);
+
+        // 3️⃣ مقارنة الاشتراكات (دراسة vs باص)
+        const request3 = new sql.Request();
+        request3.input('sessionId', sql.SmallInt, sessionId);
+
+        const typeResult = await request3.query(`
+            SELECT 
+                f.Kind_subscrip,
+                COUNT(DISTINCT f.Child_Id) as totalChildren,
+                SUM(f.amount_Sub) as totalRequired,
+                ISNULL((
+                    SELECT SUM(d.incomeAmount)
+                    FROM tbl_incomeDetalis d
+                    WHERE d.child_ID IN (
+                        SELECT Child_Id FROM tbl_FinanceChild 
+                        WHERE SessionID = @sessionId 
+                        AND Kind_subscrip = f.Kind_subscrip
+                    )
+                    AND d.incomeSessiontxt = @sessionId
+                    AND d.incomeKind = CASE 
+                        WHEN f.Kind_subscrip = N'اشتراك الدراسة السنوى' THEN 6
+                        WHEN f.Kind_subscrip = N'اشتراك الباص' THEN 7
+                        ELSE 0 END
+                ), 0) as totalPaid
+            FROM tbl_FinanceChild f
+            WHERE f.SessionID = @sessionId
+              AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+            GROUP BY f.Kind_subscrip
+        `);
+
+        // 4️⃣ أكتر المتأخرين
+        const request4 = new sql.Request();
+        request4.input('sessionId', sql.SmallInt, sessionId);
+
+        const topDebtorsResult = await request4.query(`
+            SELECT TOP 10
+                f.Child_Id,
+                c.FullNameArabic,
+                b.branchName,
+                f.Kind_subscrip,
+                f.amount_Sub as totalRequired,
+                ISNULL((
+                    SELECT SUM(d.incomeAmount)
+                    FROM tbl_incomeDetalis d
+                    WHERE d.child_ID = f.Child_Id
+                      AND d.incomeSessiontxt = @sessionId
+                      AND d.incomeKind = CASE 
+                          WHEN f.Kind_subscrip = N'اشتراك الدراسة السنوى' THEN 6
+                          WHEN f.Kind_subscrip = N'اشتراك الباص' THEN 7
+                          ELSE 0 END
+                ), 0) as totalPaid,
+                (
+                    SELECT TOP 1 DATEDIFF(DAY, p.MonthPayment, GETDATE())
+                    FROM tbl_PaymentsChild p
+                    WHERE p.PaymentID = f.ID 
+                      AND p.PaymentDone = 0
+                      AND p.MonthPayment < GETDATE()
+                    ORDER BY p.MonthPayment ASC
+                ) as daysLate
+            FROM tbl_FinanceChild f
+            INNER JOIN tbl_Child c ON f.Child_Id = c.ID_Child
+            LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+            WHERE f.SessionID = @sessionId
+              AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+            ORDER BY daysLate DESC
+        `);
+
+        // 5️⃣ المديونين لكل شهر (للتقويم)
+        const request5 = new sql.Request();
+        request5.input('sessionId', sql.SmallInt, sessionId);
+
+        const calendarResult = await request5.query(`
+            SELECT 
+                MONTH(p.MonthPayment) as installmentMonth,
+                YEAR(p.MonthPayment) as installmentYear,
+                COUNT(DISTINCT f.Child_Id) as debtorsCount,
+                SUM(p.amountPyment) as totalAmount,
+                SUM(CASE WHEN p.PaymentDone = 1 THEN 1 ELSE 0 END) as paidCount,
+                SUM(CASE WHEN p.PaymentDone = 0 THEN 1 ELSE 0 END) as unpaidCount,
+                SUM(CASE WHEN p.PaymentDone = 0 THEN p.amountPyment ELSE 0 END) as unpaidAmount
+            FROM tbl_PaymentsChild p
+            INNER JOIN tbl_FinanceChild f ON p.PaymentID = f.ID
+            WHERE f.SessionID = @sessionId
+              AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+            GROUP BY MONTH(p.MonthPayment), YEAR(p.MonthPayment)
+            ORDER BY YEAR(p.MonthPayment), MONTH(p.MonthPayment)
+        `);
+
+        // 6️⃣ إحصائيات عامة
+        const request6 = new sql.Request();
+        request6.input('sessionId', sql.SmallInt, sessionId);
+
+        const generalResult = await request6.query(`
+            SELECT 
+                COUNT(DISTINCT f.Child_Id) as totalChildren,
+                SUM(f.amount_Sub) as totalRequired,
+                ISNULL((
+                    SELECT SUM(d.incomeAmount)
+                    FROM tbl_incomeDetalis d
+                    WHERE d.incomeSessiontxt = @sessionId
+                      AND d.incomeKind IN (6, 7)
+                ), 0) as totalPaid,
+                ISNULL((
+                    SELECT AVG(CAST(daysLate as FLOAT))
+                    FROM (
+                        SELECT DATEDIFF(DAY, p.MonthPayment, GETDATE()) as daysLate
+                        FROM tbl_PaymentsChild p
+                        INNER JOIN tbl_FinanceChild f2 ON p.PaymentID = f2.ID
+                        WHERE f2.SessionID = @sessionId
+                          AND p.PaymentDone = 0
+                          AND p.MonthPayment < GETDATE()
+                    ) sub
+                ), 0) as avgDaysLate
+            FROM tbl_FinanceChild f
+            WHERE f.SessionID = @sessionId
+              AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+        `);
+
+        const general = generalResult.recordset[0];
+        const totalRequired = parseFloat(general.totalRequired || 0);
+        const totalPaid = parseFloat(general.totalPaid || 0);
+        const remaining = totalRequired - totalPaid;
+        const collectionRate = totalRequired > 0 ? ((totalPaid / totalRequired) * 100).toFixed(1) : 0;
+
+        res.status(200).json({
+            success: true,
+            data: {
+                general: {
+                    totalChildren: general.totalChildren,
+                    totalRequired: totalRequired,
+                    totalPaid: totalPaid,
+                    remaining: remaining > 0 ? remaining : 0,
+                    collectionRate: parseFloat(collectionRate),
+                    avgDaysLate: Math.round(general.avgDaysLate || 0)
+                },
+                monthly: monthlyResult.recordset,
+                branches: branchResult.recordset,
+                types: typeResult.recordset,
+                topDebtors: topDebtorsResult.recordset.filter(d => d.daysLate > 0),
+                calendar: calendarResult.recordset
+            }
+        });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب مؤشرات الأداء',
+            error: err.message
+        });
+    }
+};
+
 module.exports = {
     getAllDebts,
     getChildDebtDetails,
-    checkOverdueInstallments
+    checkOverdueInstallments,
+    getFinancialKPIs
 };
