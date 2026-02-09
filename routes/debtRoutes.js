@@ -1,0 +1,14 @@
+const express = require('express');
+const router = express.Router();
+const debtController = require('../controllers/debtController');
+
+// جلب مديونيات كل الأطفال حسب العام المالي
+router.get('/all/:sessionId', debtController.getAllDebts);
+
+// جلب تفاصيل مديونية طفل واحد
+router.get('/child/:childId/:sessionId', debtController.getChildDebtDetails);
+
+// فحص الأقساط المتأخرة وإرسال إشعارات
+router.post('/check-overdue', debtController.checkOverdueInstallments);
+
+module.exports = router;

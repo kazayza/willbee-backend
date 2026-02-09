@@ -68,6 +68,7 @@ app.use('/api/income-kpi', require('./routes/incomeKPIRoutes'));
 app.use('/api/classes', require('./routes/classRoutes'));
 app.use('/api/financial-settings', require('./routes/financialSettingsRoutes'));
 app.use('/api/expenses-kpi', require('./routes/expensesKPIRoutes'));
+app.use('/api/debts', require('./routes/debtRoutes'));
 
 
 
