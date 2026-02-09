@@ -73,7 +73,17 @@ const getChildById = async (req, res) => {
         const request = new sql.Request();
         request.input('id', sql.Int, id); // بنعرفه إن ده رقم
 
-        const result = await request.query('SELECT * FROM tbl_Child WHERE ID_Child = @id');
+        const result = await request.query(`
+    SELECT 
+        c.*,
+        b.branchName,
+        v.ClassName,
+        v.Class_ID
+    FROM tbl_Child c
+    LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+    LEFT JOIN vw_ChildrenCurrentClass v ON c.ID_Child = v.ID_Child
+    WHERE c.ID_Child = @id
+`);
 
         if (result.recordset.length > 0) {
             res.status(200).json(result.recordset[0]); // رجع أول نتيجة
