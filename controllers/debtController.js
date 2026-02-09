@@ -114,10 +114,16 @@ const getChildDebtDetails = async (req, res) => {
                 f.amount_Sub,
                 c.FullNameArabic,
                 c.Branch,
-                b.branchName
+                b.branchName,
+                c.FatherName,
+                c.FatherMobile1,
+                c.MotherName,
+                c.MotherMobile1,
+                v.ClassName
             FROM tbl_FinanceChild f
             LEFT JOIN tbl_Child c ON f.Child_Id = c.ID_Child
             LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+            LEFT JOIN vw_ChildrenCurrentClass v ON c.ID_Child = v.ID_Child
             WHERE f.Child_Id = @childId 
               AND f.SessionID = @sessionId
               AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
