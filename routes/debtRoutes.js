@@ -9,6 +9,6 @@ router.get('/all/:sessionId', debtController.getAllDebts);
 router.get('/child/:childId/:sessionId', debtController.getChildDebtDetails);
 
 // فحص الأقساط المتأخرة وإرسال إشعارات
-router.post('/check-overdue', debtController.checkOverdueInstallments);
+router.get('/check-overdue', debtController.checkOverdueInstallments);
 
 module.exports = router;
