@@ -1206,9 +1206,8 @@ const getCurrentMonthBranches = async (req, res) => {
 // 9. الفحص اليومي الأوتوماتيك للأقساط (Cron Job)
 // ═══════════════════════════════════════════════════════════════
 const dailyInstallmentCheck = async (req, res) => {
-    // 🔐 حماية بسيطة بـ secret key
     const { key } = req.query;
-    if (key !== 'WillBee_Installment_xK9mP3nQ7r') {
+    if (key !== 'WillBee_Cron_2025_xK9mP3nQ7r') {
         return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
@@ -1229,7 +1228,7 @@ const dailyInstallmentCheck = async (req, res) => {
             });
         }
 
-        // ═══════════ 2️⃣ الأقساط المتأخرة ═══════════
+        // 2️⃣ كل الأقساط المتأخرة (PaymentDone = 0 وتاريخها عدى)
         const overdueResult = await sql.query(`
             SELECT 
                 p.ID as installmentId,
@@ -1247,11 +1246,9 @@ const dailyInstallmentCheck = async (req, res) => {
             WHERE p.PaymentDone = 0
               AND p.MonthPayment < CAST(${EGYPT_TIME} AS DATE)
               AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
-              -- فقط اللي اتأخروا 1 أو 7 أو 14 أو 30 أو 60 يوم (عشان منبعتش كل يوم)
-              AND DATEDIFF(DAY, p.MonthPayment, CAST(${EGYPT_TIME} AS DATE)) IN (1, 7, 14, 30, 60, 90)
         `);
 
-        // ═══════════ 3️⃣ الأقساط القادمة خلال 3 أيام ═══════════
+        // 3️⃣ الأقساط القادمة خلال 3 أيام
         const upcomingResult = await sql.query(`
             SELECT 
                 p.ID as installmentId,
@@ -1272,37 +1269,53 @@ const dailyInstallmentCheck = async (req, res) => {
               AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
         `);
 
-        // ═══════════ 4️⃣ التحقق من عدم التكرار + الإرسال ═══════════
-
-        // فحص الإشعارات المرسلة اليوم
-        const todayNotifications = await sql.query(`
-            SELECT RelatedID, Title FROM tbl_Notifications 
-            WHERE CAST(CreatedAt AS DATE) = CAST(${EGYPT_TIME} AS DATE)
-              AND NotificationType IN ('Debt', 'Reminder')
+        // 4️⃣ فحص آخر إشعار اتبعت لكل قسط (عشان منكررش)
+        const lastNotifications = await sql.query(`
+            SELECT RelatedID, MAX(CreatedAt) as lastSent
+            FROM tbl_Notifications 
+            WHERE NotificationType IN ('Debt', 'Reminder')
+              AND RelatedTo = 'installment'
+              AND RelatedID IS NOT NULL
+            GROUP BY RelatedID
         `);
 
-        const sentToday = new Set(
-            todayNotifications.recordset.map(n => `${n.RelatedID}_${n.Title}`)
-        );
+        // تحويل لـ Map عشان نبحث بسرعة
+        const lastSentMap = {};
+        for (const n of lastNotifications.recordset) {
+            lastSentMap[n.RelatedID] = new Date(n.lastSent);
+        }
 
-        // إرسال إشعارات المتأخرات
+        const now = new Date();
+        const ONE_WEEK = 7 * 24 * 60 * 60 * 1000; // أسبوع بالمللي ثانية
+
+        // 5️⃣ إرسال إشعارات المتأخرات
         for (const overdue of overdueResult.recordset) {
-            const checkKey = `${overdue.installmentId}_⚠️ قسط متأخر`;
+            const lastSent = lastSentMap[overdue.installmentId];
             
-            if (sentToday.has(checkKey)) continue; // تخطي لو اتبعت النهاردة
+            // لو اتبعتله إشعار من أقل من أسبوع ← نتخطاه
+            if (lastSent && (now - lastSent) < ONE_WEEK) {
+                continue;
+            }
 
+            // تحديد مستوى الخطورة
             let urgencyEmoji = '⚠️';
             let urgencyText = '';
-            if (overdue.daysLate >= 60) {
+            if (overdue.daysLate >= 90) {
+                urgencyEmoji = '🚨🚨';
+                urgencyText = ' - حالة حرجة جداً';
+            } else if (overdue.daysLate >= 60) {
                 urgencyEmoji = '🚨';
-                urgencyText = ' (حالة حرجة)';
+                urgencyText = ' - حالة حرجة';
             } else if (overdue.daysLate >= 30) {
                 urgencyEmoji = '❗';
-                urgencyText = ' (تأخير كبير)';
+                urgencyText = ' - تأخير كبير';
+            } else if (overdue.daysLate >= 14) {
+                urgencyEmoji = '⚠️';
+                urgencyText = ' - تأخير';
             }
 
             const title = `${urgencyEmoji} قسط متأخر${urgencyText}`;
-            const message = `${overdue.FullNameArabic} - ${overdue.branchName} - ${overdue.Kind_subscrip} - مبلغ ${overdue.amountPyment} ج.م متأخر ${overdue.daysLate} يوم`;
+            const message = `${overdue.FullNameArabic} - ${overdue.branchName || ''} - ${overdue.Kind_subscrip} - مبلغ ${overdue.amountPyment} ج.م متأخر ${overdue.daysLate} يوم`;
 
             for (const admin of adminsResult.recordset) {
                 try {
@@ -1316,20 +1329,25 @@ const dailyInstallmentCheck = async (req, res) => {
                     );
                     notificationsSent++;
                 } catch (err) {
-                    errors.push(`Failed for user ${admin.UserId}: ${err.message}`);
+                    errors.push(`Overdue failed for user ${admin.UserId}: ${err.message}`);
                 }
             }
         }
 
-        // إرسال إشعارات الأقساط القادمة
+        // 6️⃣ إرسال إشعارات الأقساط القادمة
         for (const upcoming of upcomingResult.recordset) {
-            const checkKey = `${upcoming.installmentId}_🔔 تذكير بقسط قادم`;
+            const lastSent = lastSentMap[upcoming.installmentId];
             
-            if (sentToday.has(checkKey)) continue;
+            // القادمة نبعتها مرة واحدة بس
+            if (lastSent) {
+                continue;
+            }
 
             const title = '🔔 تذكير بقسط قادم';
-            const daysText = upcoming.daysUntil === 0 ? 'اليوم' : `بعد ${upcoming.daysUntil} يوم`;
-            const message = `${upcoming.FullNameArabic} - ${upcoming.branchName} - ${upcoming.Kind_subscrip} - مبلغ ${upcoming.amountPyment} ج.م ${daysText}`;
+            const daysText = upcoming.daysUntil === 0 
+                ? 'مستحق اليوم' 
+                : `مستحق بعد ${upcoming.daysUntil} يوم`;
+            const message = `${upcoming.FullNameArabic} - ${upcoming.branchName || ''} - ${upcoming.Kind_subscrip} - مبلغ ${upcoming.amountPyment} ج.م - ${daysText}`;
 
             for (const admin of adminsResult.recordset) {
                 try {
@@ -1343,37 +1361,49 @@ const dailyInstallmentCheck = async (req, res) => {
                     );
                     notificationsSent++;
                 } catch (err) {
-                    errors.push(`Failed for user ${admin.UserId}: ${err.message}`);
+                    errors.push(`Upcoming failed for user ${admin.UserId}: ${err.message}`);
                 }
             }
         }
 
-        // ═══════════ 5️⃣ ملخص يومي للأدمن ═══════════
-        if (overdueResult.recordset.length > 0 || upcomingResult.recordset.length > 0) {
+        // 7️⃣ ملخص يومي
+        // نتشيك لو اتبعت ملخص النهاردة
+        const todaySummary = await sql.query(`
+            SELECT COUNT(*) as cnt FROM tbl_Notifications 
+            WHERE CAST(CreatedAt AS DATE) = CAST(${EGYPT_TIME} AS DATE)
+              AND NotificationType = 'DailySummary'
+        `);
+
+        if (todaySummary.recordset[0].cnt === 0) {
+            // حساب الإجماليات
+            const totalOverdueCount = overdueResult.recordset.length;
             const totalOverdueAmount = overdueResult.recordset
                 .reduce((sum, o) => sum + parseFloat(o.amountPyment || 0), 0);
+            const totalUpcomingCount = upcomingResult.recordset.length;
             const totalUpcomingAmount = upcomingResult.recordset
                 .reduce((sum, u) => sum + parseFloat(u.amountPyment || 0), 0);
 
-            const summaryTitle = '📊 ملخص الأقساط اليومي';
-            const summaryMessage = `متأخرات: ${overdueResult.recordset.length} قسط بإجمالي ${totalOverdueAmount} ج.م | قادمة: ${upcomingResult.recordset.length} قسط بإجمالي ${totalUpcomingAmount} ج.م`;
+            // عدد الأطفال المتأخرين (بدون تكرار)
+            const uniqueOverdueChildren = new Set(
+                overdueResult.recordset.map(o => o.Child_Id)
+            ).size;
 
-            const summaryCheck = `0_${summaryTitle}`;
-            if (!sentToday.has(summaryCheck)) {
-                for (const admin of adminsResult.recordset) {
-                    try {
-                        await createAndPushNotification(
-                            admin.UserId,
-                            summaryTitle,
-                            summaryMessage,
-                            'DailySummary',
-                            null,
-                            null
-                        );
-                        notificationsSent++;
-                    } catch (err) {
-                        errors.push(`Summary failed for ${admin.UserId}: ${err.message}`);
-                    }
+            const summaryTitle = '📊 ملخص الأقساط اليومي';
+            const summaryMessage = `متأخرات: ${totalOverdueCount} قسط (${uniqueOverdueChildren} طالب) بإجمالي ${totalOverdueAmount} ج.م | قادمة: ${totalUpcomingCount} قسط بإجمالي ${totalUpcomingAmount} ج.م`;
+
+            for (const admin of adminsResult.recordset) {
+                try {
+                    await createAndPushNotification(
+                        admin.UserId,
+                        summaryTitle,
+                        summaryMessage,
+                        'DailySummary',
+                        null,
+                        null
+                    );
+                    notificationsSent++;
+                } catch (err) {
+                    errors.push(`Summary failed for ${admin.UserId}: ${err.message}`);
                 }
             }
         }
@@ -1382,16 +1412,18 @@ const dailyInstallmentCheck = async (req, res) => {
         const result = {
             success: true,
             timestamp: new Date().toISOString(),
-            message: `تم الفحص اليومي بنجاح`,
+            message: 'تم الفحص اليومي بنجاح',
             stats: {
-                overdueInstallments: overdueResult.recordset.length,
-                upcomingInstallments: upcomingResult.recordset.length,
+                totalOverdue: overdueResult.recordset.length,
+                totalUpcoming: upcomingResult.recordset.length,
                 notificationsSent: notificationsSent,
+                skippedAlreadySent: overdueResult.recordset.length - 
+                    (notificationsSent - (upcomingResult.recordset.length > 0 ? 1 : 0)),
                 errors: errors.length
             }
         };
 
-        console.log('📊 Daily Check Result:', JSON.stringify(result));
+        console.log('📊 Daily Check:', JSON.stringify(result));
         res.status(200).json(result);
 
     } catch (err) {
