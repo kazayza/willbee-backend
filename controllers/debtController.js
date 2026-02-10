@@ -1248,26 +1248,27 @@ const dailyInstallmentCheck = async (req, res) => {
               AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
         `);
 
-        // 3️⃣ الأقساط القادمة خلال 3 أيام
-        const upcomingResult = await sql.query(`
-            SELECT 
-                p.ID as installmentId,
-                p.MonthPayment,
-                p.amountPyment,
-                f.Child_Id,
-                c.FullNameArabic,
-                f.Kind_subscrip,
-                b.branchName,
-                DATEDIFF(DAY, CAST(${EGYPT_TIME} AS DATE), p.MonthPayment) as daysUntil
-            FROM tbl_PaymentsChild p
-            INNER JOIN tbl_FinanceChild f ON p.PaymentID = f.ID
-            INNER JOIN tbl_Child c ON f.Child_Id = c.ID_Child
-            LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
-            WHERE p.PaymentDone = 0
-              AND p.MonthPayment >= CAST(${EGYPT_TIME} AS DATE)
-              AND p.MonthPayment <= DATEADD(DAY, 3, CAST(${EGYPT_TIME} AS DATE))
-              AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
-        `);
+// 3️⃣ الأقساط القادمة خلال الشهر الحالي
+const upcomingResult = await sql.query(`
+    SELECT 
+        p.ID as installmentId,
+        p.MonthPayment,
+        p.amountPyment,
+        f.Child_Id,
+        c.FullNameArabic,
+        f.Kind_subscrip,
+        b.branchName,
+        DATEDIFF(DAY, CAST(${EGYPT_TIME} AS DATE), p.MonthPayment) as daysUntil
+    FROM tbl_PaymentsChild p
+    INNER JOIN tbl_FinanceChild f ON p.PaymentID = f.ID
+    INNER JOIN tbl_Child c ON f.Child_Id = c.ID_Child
+    LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+    WHERE p.PaymentDone = 0
+      AND p.MonthPayment >= CAST(${EGYPT_TIME} AS DATE)
+      AND MONTH(p.MonthPayment) = MONTH(${EGYPT_TIME})
+      AND YEAR(p.MonthPayment) = YEAR(${EGYPT_TIME})
+      AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+`);;
 
         // 4️⃣ فحص آخر إشعار اتبعت لكل قسط (عشان منكررش)
         const lastNotifications = await sql.query(`
@@ -1335,78 +1336,94 @@ const dailyInstallmentCheck = async (req, res) => {
         }
 
         // 6️⃣ إرسال إشعارات الأقساط القادمة
-        for (const upcoming of upcomingResult.recordset) {
-            const lastSent = lastSentMap[upcoming.installmentId];
-            
-            // القادمة نبعتها مرة واحدة بس
-            if (lastSent) {
-                continue;
-            }
+for (const upcoming of upcomingResult.recordset) {
+    const lastSent = lastSentMap[upcoming.installmentId];
+    
+    if (lastSent) {
+        continue;
+    }
 
-            const title = '🔔 تذكير بقسط قادم';
-            const daysText = upcoming.daysUntil === 0 
-                ? 'مستحق اليوم' 
-                : `مستحق بعد ${upcoming.daysUntil} يوم`;
-            const message = `${upcoming.FullNameArabic} - ${upcoming.branchName || ''} - ${upcoming.Kind_subscrip} - مبلغ ${upcoming.amountPyment} ج.م - ${daysText}`;
+    const title = '🔔 تذكير بقسط قادم هذا الشهر';
+    
+    // تنسيق التاريخ
+    const payDate = new Date(upcoming.MonthPayment);
+    const dateStr = `${payDate.getDate()}/${payDate.getMonth() + 1}/${payDate.getFullYear()}`;
+    
+    let daysText = '';
+    if (upcoming.daysUntil === 0) {
+        daysText = 'مستحق اليوم ⚡';
+    } else if (upcoming.daysUntil === 1) {
+        daysText = 'مستحق غداً';
+    } else {
+        daysText = `مستحق بعد ${upcoming.daysUntil} يوم (${dateStr})`;
+    }
+    
+    const message = `${upcoming.FullNameArabic} - ${upcoming.branchName || ''} - ${upcoming.Kind_subscrip} - مبلغ ${upcoming.amountPyment} ج.م - ${daysText}`;
 
-            for (const admin of adminsResult.recordset) {
-                try {
-                    await createAndPushNotification(
-                        admin.UserId,
-                        title,
-                        message,
-                        'Reminder',
-                        'installment',
-                        upcoming.installmentId
-                    );
-                    notificationsSent++;
-                } catch (err) {
-                    errors.push(`Upcoming failed for user ${admin.UserId}: ${err.message}`);
-                }
-            }
+    for (const admin of adminsResult.recordset) {
+        try {
+            await createAndPushNotification(
+                admin.UserId,
+                title,
+                message,
+                'Reminder',
+                'installment',
+                upcoming.installmentId
+            );
+            notificationsSent++;
+        } catch (err) {
+            errors.push(`Upcoming failed for user ${admin.UserId}: ${err.message}`);
         }
+    }
+}
 
         // 7️⃣ ملخص يومي
-        // نتشيك لو اتبعت ملخص النهاردة
-        const todaySummary = await sql.query(`
-            SELECT COUNT(*) as cnt FROM tbl_Notifications 
-            WHERE CAST(CreatedAt AS DATE) = CAST(${EGYPT_TIME} AS DATE)
-              AND NotificationType = 'DailySummary'
-        `);
+const todaySummary = await sql.query(`
+    SELECT COUNT(*) as cnt FROM tbl_Notifications 
+    WHERE CAST(CreatedAt AS DATE) = CAST(${EGYPT_TIME} AS DATE)
+      AND NotificationType = 'DailySummary'
+`);
 
-        if (todaySummary.recordset[0].cnt === 0) {
-            // حساب الإجماليات
-            const totalOverdueCount = overdueResult.recordset.length;
-            const totalOverdueAmount = overdueResult.recordset
-                .reduce((sum, o) => sum + parseFloat(o.amountPyment || 0), 0);
-            const totalUpcomingCount = upcomingResult.recordset.length;
-            const totalUpcomingAmount = upcomingResult.recordset
-                .reduce((sum, u) => sum + parseFloat(u.amountPyment || 0), 0);
+if (todaySummary.recordset[0].cnt === 0) {
+    const totalOverdueCount = overdueResult.recordset.length;
+    const totalOverdueAmount = overdueResult.recordset
+        .reduce((sum, o) => sum + parseFloat(o.amountPyment || 0), 0);
+    const totalUpcomingCount = upcomingResult.recordset.length;
+    const totalUpcomingAmount = upcomingResult.recordset
+        .reduce((sum, u) => sum + parseFloat(u.amountPyment || 0), 0);
 
-            // عدد الأطفال المتأخرين (بدون تكرار)
-            const uniqueOverdueChildren = new Set(
-                overdueResult.recordset.map(o => o.Child_Id)
-            ).size;
+    const uniqueOverdueChildren = new Set(
+        overdueResult.recordset.map(o => o.Child_Id)
+    ).size;
+    const uniqueUpcomingChildren = new Set(
+        upcomingResult.recordset.map(u => u.Child_Id)
+    ).size;
 
-            const summaryTitle = '📊 ملخص الأقساط اليومي';
-            const summaryMessage = `متأخرات: ${totalOverdueCount} قسط (${uniqueOverdueChildren} طالب) بإجمالي ${totalOverdueAmount} ج.م | قادمة: ${totalUpcomingCount} قسط بإجمالي ${totalUpcomingAmount} ج.م`;
+    // اسم الشهر الحالي
+    const monthNames = ['', 'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+        'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+    const currentMonth = new Date().getMonth() + 1;
+    const currentMonthName = monthNames[currentMonth];
 
-            for (const admin of adminsResult.recordset) {
-                try {
-                    await createAndPushNotification(
-                        admin.UserId,
-                        summaryTitle,
-                        summaryMessage,
-                        'DailySummary',
-                        null,
-                        null
-                    );
-                    notificationsSent++;
-                } catch (err) {
-                    errors.push(`Summary failed for ${admin.UserId}: ${err.message}`);
-                }
-            }
+    const summaryTitle = '📊 ملخص الأقساط اليومي';
+    const summaryMessage = `متأخرات: ${totalOverdueCount} قسط (${uniqueOverdueChildren} طالب) بإجمالي ${totalOverdueAmount} ج.م | قادمة خلال ${currentMonthName}: ${totalUpcomingCount} قسط (${uniqueUpcomingChildren} طالب) بإجمالي ${totalUpcomingAmount} ج.م`;
+
+    for (const admin of adminsResult.recordset) {
+        try {
+            await createAndPushNotification(
+                admin.UserId,
+                summaryTitle,
+                summaryMessage,
+                'DailySummary',
+                null,
+                null
+            );
+            notificationsSent++;
+        } catch (err) {
+            errors.push(`Summary failed for ${admin.UserId}: ${err.message}`);
         }
+    }
+}
 
         // النتيجة
         const result = {
