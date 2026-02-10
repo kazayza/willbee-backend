@@ -17,4 +17,10 @@ router.get('/kpi/:sessionId', debtController.getFinancialKPIs);
 // مؤشرات الأداء المتقدمة
 router.get('/advanced-kpi/:sessionId', debtController.getAdvancedKPIs);
 
+// كليندر الأقساط الشهرية
+router.get('/calendar/:sessionId', debtController.getMonthlyCalendar);
+
+// تفاصيل أقساط شهر معين
+router.get('/calendar/:sessionId/:month/:year', debtController.getMonthDetails);
+
 module.exports = router;

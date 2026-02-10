@@ -942,10 +942,230 @@ branches: branchResult.recordset.map(b => {
     }
 };
 
+  // ═══════════════════════════════════════════════════════════════
+// 6. كليندر الأقساط الشهرية (ملخص كل شهر)
+// ═══════════════════════════════════════════════════════════════
+const getMonthlyCalendar = async (req, res) => {
+    const { sessionId } = req.params;
+    const { branchId, type } = req.query;
+
+    try {
+        const request = new sql.Request();
+        request.input('sessionId', sql.SmallInt, sessionId);
+
+        let branchCondition = '';
+        let typeCondition = '';
+
+        if (branchId && branchId !== 'null') {
+            request.input('branchId', sql.Int, branchId);
+            branchCondition = 'AND c.Branch = @branchId';
+        }
+
+        if (type === 'study') {
+            typeCondition = `AND f.Kind_subscrip = N'اشتراك الدراسة السنوى'`;
+        } else if (type === 'bus') {
+            typeCondition = `AND f.Kind_subscrip = N'اشتراك الباص'`;
+        }
+
+        const result = await request.query(`
+            SELECT 
+                MONTH(p.MonthPayment) as monthNum,
+                YEAR(p.MonthPayment) as yearNum,
+
+                -- عدد الأطفال
+                COUNT(DISTINCT f.Child_Id) as childrenCount,
+
+                -- عدد الأقساط الكلي
+                COUNT(p.ID) as totalInstallments,
+
+                -- إجمالي المبالغ المستحقة
+                SUM(p.amountPyment) as totalAmount,
+
+                -- عدد المدفوع
+                SUM(CASE WHEN p.PaymentDone = 1 THEN 1 ELSE 0 END) as paidCount,
+
+                -- عدد غير المدفوع
+                SUM(CASE WHEN p.PaymentDone = 0 THEN 1 ELSE 0 END) as unpaidCount,
+
+                -- إجمالي المدفوع
+                SUM(CASE WHEN p.PaymentDone = 1 THEN p.amountPyment ELSE 0 END) as paidAmount,
+
+                -- إجمالي غير المدفوع
+                SUM(CASE WHEN p.PaymentDone = 0 THEN p.amountPyment ELSE 0 END) as unpaidAmount,
+
+                -- عدد المتأخر (تاريخه عدى ومتدفعش)
+                SUM(CASE 
+                    WHEN p.PaymentDone = 0 AND p.MonthPayment < CAST(GETDATE() AS DATE) 
+                    THEN 1 ELSE 0 
+                END) as overdueCount,
+
+                -- إجمالي المتأخر
+                SUM(CASE 
+                    WHEN p.PaymentDone = 0 AND p.MonthPayment < CAST(GETDATE() AS DATE) 
+                    THEN p.amountPyment ELSE 0 
+                END) as overdueAmount
+
+            FROM tbl_PaymentsChild p
+            INNER JOIN tbl_FinanceChild f ON p.PaymentID = f.ID
+            INNER JOIN tbl_Child c ON f.Child_Id = c.ID_Child
+            WHERE f.SessionID = @sessionId
+              AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+              ${branchCondition}
+              ${typeCondition}
+            GROUP BY MONTH(p.MonthPayment), YEAR(p.MonthPayment)
+            ORDER BY YEAR(p.MonthPayment), MONTH(p.MonthPayment)
+        `);
+
+        // حساب النسب لكل شهر
+        const months = result.recordset.map(m => ({
+            ...m,
+            totalAmount: parseFloat(m.totalAmount || 0),
+            paidAmount: parseFloat(m.paidAmount || 0),
+            unpaidAmount: parseFloat(m.unpaidAmount || 0),
+            overdueAmount: parseFloat(m.overdueAmount || 0),
+            collectionRate: parseFloat(m.totalAmount || 0) > 0
+                ? ((parseFloat(m.paidAmount || 0) / parseFloat(m.totalAmount || 0)) * 100).toFixed(1)
+                : '0'
+        }));
+
+        res.status(200).json({
+            success: true,
+            data: months
+        });
+
+    } catch (err) {
+        console.error('Calendar Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب بيانات الكليندر',
+            error: err.message
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 7. تفاصيل أقساط شهر معين (قائمة الأطفال)
+// ═══════════════════════════════════════════════════════════════
+const getMonthDetails = async (req, res) => {
+    const { sessionId, month, year } = req.params;
+    const { branchId, type } = req.query;
+
+    try {
+        const request = new sql.Request();
+        request.input('sessionId', sql.SmallInt, sessionId);
+        request.input('month', sql.Int, month);
+        request.input('year', sql.Int, year);
+
+        let branchCondition = '';
+        let typeCondition = '';
+
+        if (branchId && branchId !== 'null') {
+            request.input('branchId', sql.Int, branchId);
+            branchCondition = 'AND c.Branch = @branchId';
+        }
+
+        if (type === 'study') {
+            typeCondition = `AND f.Kind_subscrip = N'اشتراك الدراسة السنوى'`;
+        } else if (type === 'bus') {
+            typeCondition = `AND f.Kind_subscrip = N'اشتراك الباص'`;
+        }
+
+        const result = await request.query(`
+            SELECT 
+                p.ID as installmentId,
+                p.MonthPayment,
+                p.amountPyment,
+                p.PaymentDone,
+                p.PaymentNotes,
+                f.Child_Id,
+                f.Kind_subscrip,
+                f.amount_Sub as totalSubscription,
+                c.FullNameArabic,
+                c.FatherMobile1,
+                c.MotherMobile1,
+                b.branchName,
+                
+                -- حالة القسط
+                CASE 
+                    WHEN p.PaymentDone = 1 THEN 'paid'
+                    WHEN p.PaymentDone = 0 AND p.MonthPayment < CAST(GETDATE() AS DATE) THEN 'overdue'
+                    ELSE 'pending'
+                END as paymentStatus,
+
+                -- أيام التأخير
+                CASE 
+                    WHEN p.PaymentDone = 0 AND p.MonthPayment < CAST(GETDATE() AS DATE) 
+                    THEN DATEDIFF(DAY, p.MonthPayment, GETDATE())
+                    ELSE 0
+                END as daysLate,
+
+                -- إجمالي المدفوع للطفل في هذا الاشتراك
+                ISNULL((
+                    SELECT SUM(d.incomeAmount)
+                    FROM tbl_incomeDetalis d
+                    WHERE d.child_ID = f.Child_Id
+                      AND d.incomeSessiontxt = @sessionId
+                      AND d.incomeKind = CASE 
+                          WHEN f.Kind_subscrip = N'اشتراك الدراسة السنوى' THEN 6
+                          WHEN f.Kind_subscrip = N'اشتراك الباص' THEN 7
+                          ELSE 0 END
+                ), 0) as totalPaidForChild
+
+            FROM tbl_PaymentsChild p
+            INNER JOIN tbl_FinanceChild f ON p.PaymentID = f.ID
+            INNER JOIN tbl_Child c ON f.Child_Id = c.ID_Child
+            LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+            WHERE f.SessionID = @sessionId
+              AND MONTH(p.MonthPayment) = @month
+              AND YEAR(p.MonthPayment) = @year
+              AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+              ${branchCondition}
+              ${typeCondition}
+            ORDER BY 
+                CASE 
+                    WHEN p.PaymentDone = 0 AND p.MonthPayment < CAST(GETDATE() AS DATE) THEN 0
+                    WHEN p.PaymentDone = 0 THEN 1
+                    ELSE 2
+                END,
+                c.FullNameArabic
+        `);
+
+        // ملخص الشهر
+        const summary = {
+            totalChildren: new Set(result.recordset.map(r => r.Child_Id)).size,
+            totalInstallments: result.recordset.length,
+            totalAmount: result.recordset.reduce((sum, r) => sum + parseFloat(r.amountPyment || 0), 0),
+            paidCount: result.recordset.filter(r => r.paymentStatus === 'paid').length,
+            overdueCount: result.recordset.filter(r => r.paymentStatus === 'overdue').length,
+            pendingCount: result.recordset.filter(r => r.paymentStatus === 'pending').length,
+            paidAmount: result.recordset.filter(r => r.paymentStatus === 'paid')
+                .reduce((sum, r) => sum + parseFloat(r.amountPyment || 0), 0),
+            overdueAmount: result.recordset.filter(r => r.paymentStatus === 'overdue')
+                .reduce((sum, r) => sum + parseFloat(r.amountPyment || 0), 0),
+        };
+
+        res.status(200).json({
+            success: true,
+            summary: summary,
+            data: result.recordset
+        });
+
+    } catch (err) {
+        console.error('Month Details Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب تفاصيل الشهر',
+            error: err.message
+        });
+    }
+};
+
 module.exports = {
     getAllDebts,
     getChildDebtDetails,
     checkOverdueInstallments,
     getFinancialKPIs,
-    getAdvancedKPIs
+    getAdvancedKPIs,
+    getMonthlyCalendar,    
+    getMonthDetails  
 };
