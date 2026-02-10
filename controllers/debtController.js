@@ -1207,7 +1207,7 @@ const getCurrentMonthBranches = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 const dailyInstallmentCheck = async (req, res) => {
     const { key } = req.query;
-    if (key !== 'WillBee_Cron_2025_xK9mP3nQ7r') {
+    if (key !== 'WillBee_Installment_xK9mP3nQ7r') {
         return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
