@@ -14,4 +14,7 @@ router.get('/check-overdue', debtController.checkOverdueInstallments);
 // مؤشرات الأداء المالي
 router.get('/kpi/:sessionId', debtController.getFinancialKPIs);
 
+// مؤشرات الأداء المتقدمة
+router.get('/advanced-kpi/:sessionId', debtController.getAdvancedKPIs);
+
 module.exports = router;
