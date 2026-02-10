@@ -1208,7 +1208,7 @@ const getCurrentMonthBranches = async (req, res) => {
 const dailyInstallmentCheck = async (req, res) => {
     // 🔐 حماية بسيطة بـ secret key
     const { key } = req.query;
-    if (key !== 'YOUR_SECRET_KEY_HERE_12345') {
+    if (key !== 'WillBee_Installment_xK9mP3nQ7r') {
         return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
