@@ -645,47 +645,111 @@ const getAdvancedKPIs = async (req, res) => {
               ${branchCondition}
         `);
 
-        // ═══════════ 3. أداء الفروع ═══════════
-        const request3 = new sql.Request();
-        request3.input('sessionId', sql.SmallInt, sessionId);
+        // ═══════════ 3. أداء الفروع (مع تفصيل دراسة وباص لكل فرع) ═══════════
+const request3 = new sql.Request();
+request3.input('sessionId', sql.SmallInt, sessionId);
 
-        const branchResult = await request3.query(`
-            SELECT 
-                b.IDbranch as branchId,
-                b.branchName,
-                COUNT(DISTINCT f.Child_Id) as totalChildren,
-                SUM(f.amount_Sub) as totalRequired,
-                ISNULL((
-                    SELECT SUM(d.incomeAmount)
-                    FROM tbl_incomeDetalis d
-                    WHERE d.child_ID IN (
-                        SELECT fc.Child_Id FROM tbl_FinanceChild fc
-                        INNER JOIN tbl_Child cc ON fc.Child_Id = cc.ID_Child
-                        WHERE fc.SessionID = @sessionId AND cc.Branch = b.IDbranch
-                          AND fc.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
-                    )
-                    AND d.incomeSessiontxt = @sessionId
-                    AND d.incomeKind IN (6, 7)
-                ), 0) as totalPaid,
-                -- المتأخرين في الفرع
-                (SELECT COUNT(DISTINCT f2.Child_Id)
-                 FROM tbl_PaymentsChild p
-                 INNER JOIN tbl_FinanceChild f2 ON p.PaymentID = f2.ID
-                 INNER JOIN tbl_Child c2 ON f2.Child_Id = c2.ID_Child
-                 WHERE f2.SessionID = @sessionId
-                   AND p.PaymentDone = 0
-                   AND p.MonthPayment < CAST(GETDATE() AS DATE)
-                   AND c2.Branch = b.IDbranch
-                ) as overdueChildren
-            FROM tbl_FinanceChild f
-            INNER JOIN tbl_Child c ON f.Child_Id = c.ID_Child
-            INNER JOIN tbl_Branch b ON c.Branch = b.IDbranch
-            WHERE f.SessionID = @sessionId
-              AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
-              ${typeCondition}
-            GROUP BY b.IDbranch, b.branchName
-            ORDER BY b.branchName
-        `);
+const branchResult = await request3.query(`
+    SELECT 
+        b.IDbranch as branchId,
+        b.branchName,
+        COUNT(DISTINCT f.Child_Id) as totalChildren,
+        SUM(f.amount_Sub) as totalRequired,
+        
+        -- إجمالي المدفوع للفرع
+        ISNULL((
+            SELECT SUM(d.incomeAmount)
+            FROM tbl_incomeDetalis d
+            WHERE d.child_ID IN (
+                SELECT fc.Child_Id FROM tbl_FinanceChild fc
+                INNER JOIN tbl_Child cc ON fc.Child_Id = cc.ID_Child
+                WHERE fc.SessionID = @sessionId AND cc.Branch = b.IDbranch
+                  AND fc.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+            )
+            AND d.incomeSessiontxt = @sessionId
+            AND d.incomeKind IN (6, 7)
+        ), 0) as totalPaid,
+
+        -- المتأخرين في الفرع
+        (SELECT COUNT(DISTINCT f2.Child_Id)
+         FROM tbl_PaymentsChild p
+         INNER JOIN tbl_FinanceChild f2 ON p.PaymentID = f2.ID
+         INNER JOIN tbl_Child c2 ON f2.Child_Id = c2.ID_Child
+         WHERE f2.SessionID = @sessionId
+           AND p.PaymentDone = 0
+           AND p.MonthPayment < CAST(GETDATE() AS DATE)
+           AND c2.Branch = b.IDbranch
+        ) as overdueChildren,
+
+        -- ═══ دراسة: المطلوب ═══
+        ISNULL((
+            SELECT SUM(fc.amount_Sub)
+            FROM tbl_FinanceChild fc
+            INNER JOIN tbl_Child cc ON fc.Child_Id = cc.ID_Child
+            WHERE fc.SessionID = @sessionId
+              AND cc.Branch = b.IDbranch
+              AND fc.Kind_subscrip = N'اشتراك الدراسة السنوى'
+        ), 0) as studyRequired,
+
+        -- ═══ دراسة: المدفوع ═══
+        ISNULL((
+            SELECT SUM(d.incomeAmount)
+            FROM tbl_incomeDetalis d
+            INNER JOIN tbl_Child cc ON d.child_ID = cc.ID_Child
+            WHERE d.incomeSessiontxt = @sessionId
+              AND d.incomeKind = 6
+              AND cc.Branch = b.IDbranch
+        ), 0) as studyPaid,
+
+        -- ═══ دراسة: عدد الطلاب ═══
+        ISNULL((
+            SELECT COUNT(DISTINCT fc.Child_Id)
+            FROM tbl_FinanceChild fc
+            INNER JOIN tbl_Child cc ON fc.Child_Id = cc.ID_Child
+            WHERE fc.SessionID = @sessionId
+              AND cc.Branch = b.IDbranch
+              AND fc.Kind_subscrip = N'اشتراك الدراسة السنوى'
+        ), 0) as studyChildren,
+
+        -- ═══ باص: المطلوب ═══
+        ISNULL((
+            SELECT SUM(fc.amount_Sub)
+            FROM tbl_FinanceChild fc
+            INNER JOIN tbl_Child cc ON fc.Child_Id = cc.ID_Child
+            WHERE fc.SessionID = @sessionId
+              AND cc.Branch = b.IDbranch
+              AND fc.Kind_subscrip = N'اشتراك الباص'
+        ), 0) as busRequired,
+
+        -- ═══ باص: المدفوع ═══
+        ISNULL((
+            SELECT SUM(d.incomeAmount)
+            FROM tbl_incomeDetalis d
+            INNER JOIN tbl_Child cc ON d.child_ID = cc.ID_Child
+            WHERE d.incomeSessiontxt = @sessionId
+              AND d.incomeKind = 7
+              AND cc.Branch = b.IDbranch
+        ), 0) as busPaid,
+
+        -- ═══ باص: عدد الطلاب ═══
+        ISNULL((
+            SELECT COUNT(DISTINCT fc.Child_Id)
+            FROM tbl_FinanceChild fc
+            INNER JOIN tbl_Child cc ON fc.Child_Id = cc.ID_Child
+            WHERE fc.SessionID = @sessionId
+              AND cc.Branch = b.IDbranch
+              AND fc.Kind_subscrip = N'اشتراك الباص'
+        ), 0) as busChildren
+
+    FROM tbl_FinanceChild f
+    INNER JOIN tbl_Child c ON f.Child_Id = c.ID_Child
+    INNER JOIN tbl_Branch b ON c.Branch = b.IDbranch
+    WHERE f.SessionID = @sessionId
+      AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+      ${typeCondition}
+    GROUP BY b.IDbranch, b.branchName
+    ORDER BY b.branchName
+`);
 
         // ═══════════ 4. مقارنة دراسة vs باص ═══════════
         const request4 = new sql.Request();
@@ -820,15 +884,40 @@ const getAdvancedKPIs = async (req, res) => {
                     upcomingAmount: parseFloat(general.upcomingAmount || 0),
                     avgDaysLate: Math.round(general.avgDaysLate || 0)
                 },
-                branches: branchResult.recordset.map(b => ({
-                    ...b,
-                    totalRequired: parseFloat(b.totalRequired || 0),
-                    totalPaid: parseFloat(b.totalPaid || 0),
-                    remaining: Math.max(0, parseFloat(b.totalRequired || 0) - parseFloat(b.totalPaid || 0)),
-                    collectionRate: parseFloat(b.totalRequired || 0) > 0
-                        ? ((parseFloat(b.totalPaid || 0) / parseFloat(b.totalRequired || 0)) * 100).toFixed(1)
-                        : 0
-                })),
+// ✅ الجديد - حط ده مكانه
+branches: branchResult.recordset.map(b => {
+    const totalReq = parseFloat(b.totalRequired || 0);
+    const totalPd = parseFloat(b.totalPaid || 0);
+    const studyReq = parseFloat(b.studyRequired || 0);
+    const studyPd = parseFloat(b.studyPaid || 0);
+    const busReq = parseFloat(b.busRequired || 0);
+    const busPd = parseFloat(b.busPaid || 0);
+
+    return {
+        ...b,
+        totalRequired: totalReq,
+        totalPaid: totalPd,
+        remaining: Math.max(0, totalReq - totalPd),
+        collectionRate: totalReq > 0 
+            ? ((totalPd / totalReq) * 100).toFixed(1) : '0',
+        
+        // تفاصيل الدراسة
+        studyRequired: studyReq,
+        studyPaid: studyPd,
+        studyRemaining: Math.max(0, studyReq - studyPd),
+        studyRate: studyReq > 0 
+            ? ((studyPd / studyReq) * 100).toFixed(1) : '0',
+        studyChildren: b.studyChildren || 0,
+
+        // تفاصيل الباص
+        busRequired: busReq,
+        busPaid: busPd,
+        busRemaining: Math.max(0, busReq - busPd),
+        busRate: busReq > 0 
+            ? ((busPd / busReq) * 100).toFixed(1) : '0',
+        busChildren: b.busChildren || 0,
+    };
+}),
                 types: typeResult.recordset.map(t => ({
                     ...t,
                     totalRequired: parseFloat(t.totalRequired || 0),
