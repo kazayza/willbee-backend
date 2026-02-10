@@ -23,4 +23,6 @@ router.get('/calendar/:sessionId', debtController.getMonthlyCalendar);
 // تفاصيل أقساط شهر معين
 router.get('/calendar/:sessionId/:month/:year', debtController.getMonthDetails);
 
+router.get('/current-month-branches/:sessionId', debtController.getCurrentMonthBranches);
+
 module.exports = router;

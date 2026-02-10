@@ -1126,6 +1126,82 @@ const getMonthDetails = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 8. تفصيلة الشهر الحالي حسب الفروع
+// ═══════════════════════════════════════════════════════════════
+const getCurrentMonthBranches = async (req, res) => {
+    const { sessionId } = req.params;
+    const { type } = req.query;
+
+    try {
+        const request = new sql.Request();
+        request.input('sessionId', sql.SmallInt, sessionId);
+
+        let typeCondition = '';
+        if (type === 'study') {
+            typeCondition = `AND f.Kind_subscrip = N'اشتراك الدراسة السنوى'`;
+        } else if (type === 'bus') {
+            typeCondition = `AND f.Kind_subscrip = N'اشتراك الباص'`;
+        }
+
+        const result = await request.query(`
+            SELECT 
+                b.IDbranch as branchId,
+                b.branchName,
+                COUNT(DISTINCT f.Child_Id) as childrenCount,
+                COUNT(p.ID) as installmentsCount,
+                SUM(p.amountPyment) as totalUnpaid,
+                
+                SUM(CASE 
+                    WHEN p.MonthPayment < CAST(GETDATE() AS DATE) 
+                    THEN 1 ELSE 0 
+                END) as overdueCount,
+
+                SUM(CASE 
+                    WHEN p.MonthPayment < CAST(GETDATE() AS DATE) 
+                    THEN p.amountPyment ELSE 0 
+                END) as overdueAmount,
+
+                SUM(CASE 
+                    WHEN p.MonthPayment >= CAST(GETDATE() AS DATE) 
+                    THEN 1 ELSE 0 
+                END) as pendingCount
+
+            FROM tbl_PaymentsChild p
+            INNER JOIN tbl_FinanceChild f ON p.PaymentID = f.ID
+            INNER JOIN tbl_Child c ON f.Child_Id = c.ID_Child
+            INNER JOIN tbl_Branch b ON c.Branch = b.IDbranch
+            WHERE f.SessionID = @sessionId
+              AND p.PaymentDone = 0
+              AND MONTH(p.MonthPayment) = MONTH(GETDATE())
+              AND YEAR(p.MonthPayment) = YEAR(GETDATE())
+              AND f.Kind_subscrip IN (N'اشتراك الدراسة السنوى', N'اشتراك الباص')
+              ${typeCondition}
+            GROUP BY b.IDbranch, b.branchName
+            ORDER BY b.branchName
+        `);
+
+        res.status(200).json({
+            success: true,
+            currentMonth: new Date().getMonth() + 1,
+            currentYear: new Date().getFullYear(),
+            data: result.recordset.map(b => ({
+                ...b,
+                totalUnpaid: parseFloat(b.totalUnpaid || 0),
+                overdueAmount: parseFloat(b.overdueAmount || 0),
+            }))
+        });
+
+    } catch (err) {
+        console.error('Current Month Branches Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب بيانات الشهر الحالي',
+            error: err.message
+        });
+    }
+};
+
 module.exports = {
     getAllDebts,
     getChildDebtDetails,
@@ -1133,5 +1209,6 @@ module.exports = {
     getFinancialKPIs,
     getAdvancedKPIs,
     getMonthlyCalendar,    
-    getMonthDetails  
+    getMonthDetails,
+    getCurrentMonthBranches  
 };
