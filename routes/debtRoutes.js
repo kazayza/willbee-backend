@@ -25,4 +25,7 @@ router.get('/calendar/:sessionId/:month/:year', debtController.getMonthDetails);
 
 router.get('/current-month-branches/:sessionId', debtController.getCurrentMonthBranches);
 
+// الفحص اليومي الأوتوماتيك (Cron Job)
+router.get('/daily-check', debtController.dailyInstallmentCheck);
+
 module.exports = router;
