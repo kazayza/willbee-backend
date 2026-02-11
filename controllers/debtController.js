@@ -1453,6 +1453,94 @@ if (todaySummary.recordset[0].cnt === 0) {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 10. جلب بيانات قسط معين بالـ ID
+// ═══════════════════════════════════════════════════════════════
+const getInstallmentDetails = async (req, res) => {
+    const { installmentId } = req.params;
+
+    try {
+        const request = new sql.Request();
+        request.input('installmentId', sql.Int, installmentId);
+
+        const result = await request.query(`
+            SELECT 
+                p.ID as installmentId,
+                p.MonthPayment,
+                p.amountPyment,
+                p.PaymentDone,
+                p.PaymentNotes,
+                f.Child_Id,
+                f.Kind_subscrip,
+                f.amount_Sub as totalSubscription,
+                f.SessionID,
+                c.FullNameArabic,
+                c.FatherName,
+                c.FatherMobile1,
+                c.MotherName,
+                c.MotherMobile1,
+                b.branchName,
+                s.Sessions as sessionName,
+
+                CASE 
+                    WHEN p.PaymentDone = 1 THEN 'paid'
+                    WHEN p.PaymentDone = 0 AND p.MonthPayment < CAST(GETDATE() AS DATE) THEN 'overdue'
+                    ELSE 'pending'
+                END as status,
+
+                CASE 
+                    WHEN p.PaymentDone = 0 AND p.MonthPayment < CAST(GETDATE() AS DATE) 
+                    THEN DATEDIFF(DAY, p.MonthPayment, GETDATE())
+                    ELSE 0
+                END as daysLate,
+
+                ISNULL((
+                    SELECT SUM(d.incomeAmount)
+                    FROM tbl_incomeDetalis d
+                    WHERE d.child_ID = f.Child_Id
+                      AND d.incomeSessiontxt = f.SessionID
+                      AND d.incomeKind = CASE 
+                          WHEN f.Kind_subscrip = N'اشتراك الدراسة السنوى' THEN 6
+                          WHEN f.Kind_subscrip = N'اشتراك الباص' THEN 7
+                          ELSE 0 END
+                ), 0) as totalPaidForChild,
+
+                (SELECT COUNT(*) FROM tbl_PaymentsChild 
+                 WHERE PaymentID = f.ID AND PaymentDone = 0) as remainingInstallments,
+
+                (SELECT COUNT(*) FROM tbl_PaymentsChild 
+                 WHERE PaymentID = f.ID AND PaymentDone = 1) as paidInstallments
+
+            FROM tbl_PaymentsChild p
+            INNER JOIN tbl_FinanceChild f ON p.PaymentID = f.ID
+            INNER JOIN tbl_Child c ON f.Child_Id = c.ID_Child
+            LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+            LEFT JOIN tbl_Sessions s ON f.SessionID = s.IDSession
+            WHERE p.ID = @installmentId
+        `);
+
+        if (result.recordset.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'القسط غير موجود'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: result.recordset[0]
+        });
+
+    } catch (err) {
+        console.error('Installment Details Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب بيانات القسط',
+            error: err.message
+        });
+    }
+};
+
 module.exports = {
     getAllDebts,
     getChildDebtDetails,
@@ -1462,5 +1550,6 @@ module.exports = {
     getMonthlyCalendar,    
     getMonthDetails,
     getCurrentMonthBranches,
-    dailyInstallmentCheck
+    dailyInstallmentCheck,
+    getInstallmentDetails
 };
