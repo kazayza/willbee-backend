@@ -301,17 +301,18 @@ await notifyAdminsAndAccountants(
 };
 
 // ═══════════════════════════════════════════════════════════════
-// 5. جلب بيانات اشتراك طفل مع الأقساط والمدفوعات
+// 5. جلب بيانات اشتراك طفل مع الأقساط والمدفوعات (دراسة أو باص)
 // ═══════════════════════════════════════════════════════════════
 const getChildSubscriptionDetails = async (req, res) => {
     const { childId, sessionId, type } = req.params;
-    // تحديد النوع بناءً على type
-const subscriptionMap = {
-    study: { kindSubscrip: 'اشتراك الدراسة السنوى', kindId: 6 },
-    bus:   { kindSubscrip: 'اشتراك الباص',          kindId: 7 }
-};
 
-const subType = subscriptionMap[type] || subscriptionMap['study'];
+    // تحديد النوع بناءً على type
+    const subscriptionMap = {
+        study: { kindSubscrip: 'اشتراك الدراسة السنوى', kindId: 6 },
+        bus:   { kindSubscrip: 'اشتراك الباص',          kindId: 7 }
+    };
+
+    const subType = subscriptionMap[type] || subscriptionMap['study'];
 
     try {
         const request = new sql.Request();
@@ -329,11 +330,11 @@ const subType = subscriptionMap[type] || subscriptionMap['study'];
                 f.discount,
                 f.amount_Sub,
                 f.SessionID,
+                f.BusLine,
+                bl.[BusLine] as BusLineName,
                 s.Sessions as SessionName,
                 c.FullNameArabic as ChildName,
                 c.Branch
-                f.BusLine,
-                bl.BusLine as BusLineName
             FROM tbl_FinanceChild f
             LEFT JOIN tbl_Sessions s ON f.SessionID = s.IDSession
             LEFT JOIN tbl_Child c ON f.Child_Id = c.ID_Child
@@ -369,11 +370,11 @@ const subType = subscriptionMap[type] || subscriptionMap['study'];
             ORDER BY MonthPayment ASC
         `);
 
-        // 3️⃣ حساب المدفوع من tbl_incomeDetalis (مرتبط بالعام المالي) ⭐
+        // 3️⃣ حساب المدفوع من tbl_incomeDetalis (مرتبط بالعام المالي)
         const requestPaid = new sql.Request();
         requestPaid.input('childId', sql.Int, childId);
         requestPaid.input('kindId', sql.SmallInt, subType.kindId);
-        requestPaid.input('sessionId', sql.SmallInt, sessionId);  // ⭐ فلترة بالعام
+        requestPaid.input('sessionId', sql.SmallInt, sessionId);
 
         const paidResult = await requestPaid.query(`
             SELECT ISNULL(SUM(d.incomeAmount), 0) as totalPaid
