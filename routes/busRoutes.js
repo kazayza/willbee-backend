@@ -3,5 +3,6 @@ const router = express.Router();
 const busController = require('../controllers/busController');
 
 router.get('/', busController.getBusLines);
+router.get('/children/:busLineId/:sessionId', busController.getBusLineChildren);
 
 module.exports = router;
