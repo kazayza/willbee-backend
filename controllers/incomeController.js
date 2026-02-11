@@ -304,12 +304,20 @@ await notifyAdminsAndAccountants(
 // 5. جلب بيانات اشتراك طفل مع الأقساط والمدفوعات
 // ═══════════════════════════════════════════════════════════════
 const getChildSubscriptionDetails = async (req, res) => {
-    const { childId, sessionId } = req.params;
+    const { childId, sessionId, type } = req.params;
+    // تحديد النوع بناءً على type
+const subscriptionMap = {
+    study: { kindSubscrip: 'اشتراك الدراسة السنوى', kindId: 6 },
+    bus:   { kindSubscrip: 'اشتراك الباص',          kindId: 7 }
+};
+
+const subType = subscriptionMap[type] || subscriptionMap['study'];
 
     try {
         const request = new sql.Request();
         request.input('childId', sql.Int, childId);
         request.input('sessionId', sql.SmallInt, sessionId);
+        request.input('kindSubscrip', sql.NVarChar, subType.kindSubscrip);
 
         // 1️⃣ بيانات الاشتراك من tbl_FinanceChild
         const financeResult = await request.query(`
@@ -324,12 +332,15 @@ const getChildSubscriptionDetails = async (req, res) => {
                 s.Sessions as SessionName,
                 c.FullNameArabic as ChildName,
                 c.Branch
+                f.BusLine,
+                bl.BusLine as BusLineName
             FROM tbl_FinanceChild f
             LEFT JOIN tbl_Sessions s ON f.SessionID = s.IDSession
             LEFT JOIN tbl_Child c ON f.Child_Id = c.ID_Child
+            LEFT JOIN tbl_BusLines bl ON f.BusLine = bl.ID
             WHERE f.Child_Id = @childId 
               AND f.SessionID = @sessionId
-              AND f.Kind_subscrip = N'اشتراك الدراسة السنوى'
+              AND f.Kind_subscrip = @kindSubscrip
         `);
 
         if (financeResult.recordset.length === 0) {
@@ -361,7 +372,7 @@ const getChildSubscriptionDetails = async (req, res) => {
         // 3️⃣ حساب المدفوع من tbl_incomeDetalis (مرتبط بالعام المالي) ⭐
         const requestPaid = new sql.Request();
         requestPaid.input('childId', sql.Int, childId);
-        requestPaid.input('kindId', sql.SmallInt, 6);
+        requestPaid.input('kindId', sql.SmallInt, subType.kindId);
         requestPaid.input('sessionId', sql.SmallInt, sessionId);  // ⭐ فلترة بالعام
 
         const paidResult = await requestPaid.query(`
