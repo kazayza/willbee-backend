@@ -17,7 +17,7 @@ router.get('/kinds', incomeController.getIncomeKinds); // رجعتها kinds ب�
 router.get('/kinds/all', incomeController.getIncomeKinds); // احتياطي لو بتستخدم ده
 
 // بيانات اشتراك طفل
-router.get('/subscription/:childId/:sessionId/:type', getChildSubscriptionDetails);
+router.get('/subscription/:childId/:sessionId/:type', incomeController.getChildSubscriptionDetails);
 
 // ═══════════════════════════════════════════════════════════════
 // 2. الـ Routes المتغيرة (تيجي في الآخر)
