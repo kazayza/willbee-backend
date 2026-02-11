@@ -58,7 +58,113 @@ const getBusLineChildren = async (req, res) => {
     }
 };
 
+// إضافة خط باص جديد
+const addBusLine = async (req, res) => {
+    const { busLine } = req.body;
+
+    if (!busLine || busLine.trim() === '') {
+        return res.status(400).json({
+            success: false,
+            message: 'اسم الخط مطلوب'
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('busLine', sql.NVarChar, busLine.trim());
+
+        // التحقق من عدم التكرار
+        const checkResult = await request.query(`
+            SELECT ID FROM tbl_BusLines WHERE BusLine = @busLine
+        `);
+
+        if (checkResult.recordset.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'هذا الخط موجود بالفعل'
+            });
+        }
+
+        const result = await request.query(`
+            INSERT INTO tbl_BusLines (BusLine)
+            OUTPUT inserted.ID
+            VALUES (@busLine)
+        `);
+
+        res.status(201).json({
+            success: true,
+            message: 'تم إضافة الخط بنجاح ✅',
+            id: result.recordset[0].ID
+        });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({
+            success: false,
+            message: 'فشل إضافة الخط',
+            error: err.message
+        });
+    }
+};
+
+// تعديل خط باص
+const updateBusLine = async (req, res) => {
+    const { id } = req.params;
+    const { busLine } = req.body;
+
+    if (!busLine || busLine.trim() === '') {
+        return res.status(400).json({
+            success: false,
+            message: 'اسم الخط مطلوب'
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, id);
+        request.input('busLine', sql.NVarChar, busLine.trim());
+
+        // التحقق من عدم التكرار
+        const checkResult = await request.query(`
+            SELECT ID FROM tbl_BusLines WHERE BusLine = @busLine AND ID != @id
+        `);
+
+        if (checkResult.recordset.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'هذا الاسم موجود بالفعل لخط آخر'
+            });
+        }
+
+        const result = await request.query(`
+            UPDATE tbl_BusLines SET BusLine = @busLine WHERE ID = @id
+        `);
+
+        if (result.rowsAffected[0] > 0) {
+            res.status(200).json({
+                success: true,
+                message: 'تم تعديل الخط بنجاح ✅'
+            });
+        } else {
+            res.status(404).json({
+                success: false,
+                message: 'الخط غير موجود'
+            });
+        }
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({
+            success: false,
+            message: 'فشل تعديل الخط',
+            error: err.message
+        });
+    }
+};
+
 module.exports = {
     getBusLines,
-    getBusLineChildren
+    getBusLineChildren,
+    addBusLine,
+    updateBusLine
 };
