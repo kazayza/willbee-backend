@@ -1,89 +1,310 @@
 const { sql } = require('../config/db');
 
 // =========================================================================
-// 1. دالة المعاينة وتجهيز الرواتب (Preview) - تفصيل كامل للبنود
+// 1. الجلب الذكي - fetchPayroll
+//    - لو معتمد (salaryDone=1) → أرشيف للعرض فقط
+//    - لو مسودة (salaryDone=0) → يعيد الحساب من eshraf ويحدّث
+//    - لو مفيش حاجة → يحسب ويحفظ مسودة جديدة
 // =========================================================================
-const previewPayroll = async (req, res) => {
-    const { month, year } = req.query;
+const fetchPayroll = async (req, res) => {
+    const { month, year, branchId, workerTypeId } = req.query;
+
+    if (!month || !year) {
+        return res.status(400).json({ message: 'الشهر والسنة مطلوبين' });
+    }
 
     try {
-        const query = `
+        // ======== أولاً: هل فيه مرتبات معتمدة؟ ========
+        const checkReq = new sql.Request();
+        checkReq.input('month', sql.Int, parseInt(month));
+        checkReq.input('year', sql.Int, parseInt(year));
+
+        const approvedCheck = await checkReq.query(`
+            SELECT ID FROM tbl_expenses 
+            WHERE Kind = N'مرتبات' 
+              AND MONTH(expenseDate) = @month 
+              AND YEAR(expenseDate) = @year
+              AND salaryDone = 1
+        `);
+
+        // ✅ لو معتمد → جلب من الأرشيف
+        if (approvedCheck.recordset.length > 0) {
+            const expenseId = approvedCheck.recordset[0].ID;
+
+            const archReq = new sql.Request();
+            archReq.input('expenseId', sql.Int, expenseId);
+
+            let archQuery = `
+                SELECT 
+                    e.ID as EmpID,
+                    e.empName,
+                    e.mobile1,
+                    e.job,
+                    e.BranchID,
+                    e.EmpType as workerTypeId,
+                    b.branchName,
+                    d.salary as BaseSalary,
+                    d.extraTime,
+                    d.badal,
+                    d.Reward,
+                    d.penalty,
+                    d.busSub,
+                    d.qstSolfa,
+                    d.Solfa,
+                    d.[absence's _Day] as AbsenceDays,
+                    d.absence as absenceAmount,
+                    d.expenseAmount as netForDB,
+                    d.Notes
+                FROM tbl_ExpensesDetalis d
+                INNER JOIN tbl_empolyee e ON d.empolyee_ID = e.ID
+                LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
+                WHERE d.IDExpense = @expenseId
+            `;
+
+            if (branchId) {
+                archReq.input('branchId', sql.Int, parseInt(branchId));
+                archQuery += ' AND e.BranchID = @branchId';
+            }
+            if (workerTypeId) {
+                archReq.input('workerTypeId', sql.Int, parseInt(workerTypeId));
+                archQuery += ' AND e.EmpType = @workerTypeId';
+            }
+
+            archQuery += ' ORDER BY e.empName ASC';
+            const archResult = await archReq.query(archQuery);
+
+            // حساب صافي الموظف من البيانات المحفوظة
+            const archiveData = archResult.recordset.map(emp => {
+                const totalAdd = (emp.BaseSalary || 0) + (emp.extraTime || 0) + (emp.badal || 0) + (emp.Reward || 0);
+                const totalSub = (emp.penalty || 0) + (emp.busSub || 0) + (emp.absenceAmount || 0) + (emp.qstSolfa || 0);
+                return {
+                    ...emp,
+                    netForEmployee: parseFloat((totalAdd - totalSub).toFixed(2))
+                };
+            });
+
+            return res.status(200).json({
+                status: 'approved',
+                expenseId: expenseId,
+                data: archiveData
+            });
+        }
+
+        // ======== ثانياً: حساب من tbl_eshraf ========
+        const calcReq = new sql.Request();
+        calcReq.input('month', sql.Int, parseInt(month));
+        calcReq.input('year', sql.Int, parseInt(year));
+
+        let calcQuery = `
             SELECT 
                 e.ID as EmpID,
                 e.empName,
                 e.mobile1,
                 e.job,
+                e.BranchID,
+                e.EmpType as workerTypeId,
+                b.branchName,
+                w.workdescription,
                 
-                -- 1. الراتب الأساسي
-                ISNULL((SELECT TOP 1 BaseSalary FROM tbl_baseSalaryEmpolyee WHERE ID_emp = e.ID ORDER BY increseDate DESC), 0) as BaseSalary,
+                -- الراتب الأساسي
+                ISNULL((SELECT TOP 1 BaseSalary 
+                        FROM tbl_baseSalaryEmpolyee 
+                        WHERE ID_emp = e.ID 
+                        ORDER BY increseDate DESC), 0) as BaseSalary,
 
-                -- 2. التفصيل للاستحقاقات (مفصولة للعرض في فلاتر)
-                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month AND YEAR(datePenalty) = @year AND KindPenalty = 'اضافى' AND done = 0), 0) as Overtime,
-                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month AND YEAR(datePenalty) = @year AND KindPenalty = 'بدل' AND done = 0), 0) as Allowance,
-                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month AND YEAR(datePenalty) = @year AND KindPenalty IN ('مكافاه', 'حافز', 'اشراف') AND done = 0), 0) as Rewards,
+                -- استحقاقات (مفصولة في أعمدتها الصحيحة)
+                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf 
+                        WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month 
+                        AND YEAR(datePenalty) = @year AND KindPenalty = N'اضافى' AND done = 0), 0) as extraTime,
 
-                -- 3. التفصيل للاستقطاعات الإدارية
-                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month AND YEAR(datePenalty) = @year AND KindPenalty IN ('تاخير', 'جزاء') AND done = 0), 0) as Deductions,
-                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month AND YEAR(datePenalty) = @year AND KindPenalty = 'اشتراك باص' AND done = 0), 0) as BusDeduction,
+                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf 
+                        WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month 
+                        AND YEAR(datePenalty) = @year AND KindPenalty = N'بدل' AND done = 0), 0) as badal,
 
-                -- 4. السلف
-                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month AND YEAR(datePenalty) = @year AND KindPenalty = 'قسط سلفه' AND done = 0), 0) as qstSolfa,
-                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month AND YEAR(datePenalty) = @year AND KindPenalty = 'سلفه' AND done = 0), 0) as Solfa,
+                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf 
+                        WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month 
+                        AND YEAR(datePenalty) = @year AND KindPenalty = N'مكافاه' AND done = 0), 0) as Reward,
 
-                -- 5. عدد أيام الغياب من جدول الحضور
+                -- استقطاعات (مفصولة)
+                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf 
+                        WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month 
+                        AND YEAR(datePenalty) = @year AND KindPenalty IN (N'اشراف', N'تاخير') AND done = 0), 0) as penalty,
+
+                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf 
+                        WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month 
+                        AND YEAR(datePenalty) = @year AND KindPenalty IN (N'باص', N'اشتراك باص') AND done = 0), 0) as busSub,
+
+                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf 
+                        WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month 
+                        AND YEAR(datePenalty) = @year AND KindPenalty = N'قسط سلفه' AND done = 0), 0) as qstSolfa,
+
+                -- السلفة (بند منفصل - اتصرفت خلال الشهر)
+                ISNULL((SELECT SUM(amountPenalty) FROM tbl_eshraf 
+                        WHERE empolyeeID = e.ID AND MONTH(datePenalty) = @month 
+                        AND YEAR(datePenalty) = @year AND KindPenalty = N'سلفه' AND done = 0), 0) as Solfa,
+
+                -- عدد أيام الغياب
                 ISNULL((SELECT COUNT(d.Emp_code) 
                         FROM tbl_absenseEmpDetalies d
                         INNER JOIN tbl_absenseEmp m ON d.ID = m.ID
                         WHERE d.Emp_code = e.ID AND d.Absence = 1 
-                        AND MONTH(m.Databsense) = @month AND YEAR(m.Databsense) = @year), 0) as AbsenceDays
+                        AND MONTH(m.Databsense) = @month 
+                        AND YEAR(m.Databsense) = @year), 0) as AbsenceDays
 
             FROM tbl_empolyee e
-            WHERE e.empstatus = 1 
+            LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
+            LEFT JOIN tbl_empworker w ON e.EmpType = w.ID
+            WHERE e.empstatus = 1
         `;
 
-        const request = new sql.Request();
-        request.input('month', sql.Int, month);
-        request.input('year', sql.Int, year);
+        if (branchId) {
+            calcReq.input('branchId', sql.Int, parseInt(branchId));
+            calcQuery += ' AND e.BranchID = @branchId';
+        }
+        if (workerTypeId) {
+            calcReq.input('workerTypeId', sql.Int, parseInt(workerTypeId));
+            calcQuery += ' AND e.EmpType = @workerTypeId';
+        }
 
-        const result = await request.query(query);
+        calcQuery += ' ORDER BY e.empName ASC';
+        const calcResult = await calcReq.query(calcQuery);
 
-        // حساب قيمة الغياب والصافي المبدئي برمجياً
-        const payroll = result.recordset.map(emp => {
-            const dayValue = emp.BaseSalary / 30; // قيمة اليوم
-            const absenceDeduction = emp.AbsenceDays * dayValue; // قيمة الغياب بالمال
+        // ======== حساب الغياب والصافي ========
+        const payroll = calcResult.recordset.map(emp => {
+            // معادلة الغياب: Int(((salary / 22) * days) / 10) * 10
+            const dayValue = emp.BaseSalary / 22;
+            const absenceAmount = Math.floor((dayValue * emp.AbsenceDays) / 10) * 10;
 
-            // إجمالي الإضافات
-            const totalAdditions = emp.BaseSalary + emp.Overtime + emp.Allowance + emp.Rewards;
-            // إجمالي الخصومات
-            const totalDeductions = emp.Deductions + emp.BusDeduction + absenceDeduction + emp.qstSolfa;
-            
-            // الصافي الأولي (قبل التعديل اليدوي في فلاتر)
-            const netSalary = totalAdditions - totalDeductions;
-            
+            const totalAdd = emp.BaseSalary + emp.extraTime + emp.badal + emp.Reward;
+            const totalSub = emp.penalty + emp.busSub + absenceAmount + emp.qstSolfa;
+
+            // صافي الموظف (اللي هيستلمه - للواتساب)
+            const netForEmployee = parseFloat((totalAdd - totalSub).toFixed(2));
+            // صافي التسجيل (محاسبياً - يشمل السلفة)
+            const netForDB = parseFloat((netForEmployee + emp.Solfa).toFixed(2));
+
             return {
                 ...emp,
-                AbsenceDeductionAmount: parseFloat(absenceDeduction.toFixed(2)),
-                NetSalary: parseFloat(netSalary.toFixed(2))
+                absenceAmount,
+                netForEmployee,
+                netForDB
             };
         });
 
-        res.status(200).json(payroll);
+        // ======== حفظ تلقائي كمسودة ========
+        const transaction = new sql.Transaction();
+        await transaction.begin();
+
+        try {
+            // هل فيه مسودة قديمة (salaryDone = 0)؟
+            const draftCheck = new sql.Request(transaction);
+            draftCheck.input('month', sql.Int, parseInt(month));
+            draftCheck.input('year', sql.Int, parseInt(year));
+
+            const draftResult = await draftCheck.query(`
+                SELECT ID FROM tbl_expenses 
+                WHERE Kind = N'مرتبات' 
+                  AND MONTH(expenseDate) = @month 
+                  AND YEAR(expenseDate) = @year
+                  AND salaryDone = 0
+            `);
+
+            let expenseID;
+            const lastDayOfMonth = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59);
+            const headerByan = `رواتب موظفين شهر ${month}/${year}`;
+
+            if (draftResult.recordset.length > 0) {
+                // ✏️ تحديث المسودة الموجودة
+                expenseID = draftResult.recordset[0].ID;
+
+                const delReq = new sql.Request(transaction);
+                delReq.input('expID', sql.Int, expenseID);
+                await delReq.query('DELETE FROM tbl_ExpensesDetalis WHERE IDExpense = @expID');
+
+                const updReq = new sql.Request(transaction);
+                updReq.input('expID', sql.Int, expenseID);
+                updReq.input('date', sql.DateTime, lastDayOfMonth);
+                updReq.input('byan', sql.NVarChar, headerByan);
+                await updReq.query(`
+                    UPDATE tbl_expenses 
+                    SET expenseDate = @date, expenseByan = @byan, 
+                        useredit = 'AutoSave', editTime = GETDATE()
+                    WHERE ID = @expID
+                `);
+            } else {
+                // ➕ إنشاء مسودة جديدة
+                const insReq = new sql.Request(transaction);
+                insReq.input('date', sql.DateTime, lastDayOfMonth);
+                insReq.input('byan', sql.NVarChar, headerByan);
+
+                const headResult = await insReq.query(`
+                    INSERT INTO tbl_expenses 
+                    (expenseDate, Kind, userAdd, Addtime, salaryDone, expenseByan)
+                    OUTPUT inserted.ID
+                    VALUES (@date, N'مرتبات', 'AutoSave', GETDATE(), 0, @byan)
+                `);
+                expenseID = headResult.recordset[0].ID;
+            }
+
+            // 📝 إدراج تفاصيل كل موظف
+            for (const emp of payroll) {
+                const detReq = new sql.Request(transaction);
+                detReq.input('expID', sql.Int, expenseID);
+                detReq.input('empID', sql.Int, emp.EmpID);
+                detReq.input('expenseAmount', sql.Decimal(9, 2), emp.netForDB);
+                detReq.input('salary', sql.Decimal(7, 2), emp.BaseSalary);
+                detReq.input('extraTime', sql.Decimal(7, 2), emp.extraTime);
+                detReq.input('badal', sql.Decimal(7, 2), emp.badal);
+                detReq.input('reward', sql.Decimal(7, 2), emp.Reward);
+                detReq.input('penalty', sql.Decimal(7, 2), emp.penalty);
+                detReq.input('busSub', sql.Decimal(7, 2), emp.busSub);
+                detReq.input('qstSolfa', sql.Decimal(7, 2), emp.qstSolfa);
+                detReq.input('solfa', sql.Decimal(7, 2), emp.Solfa);
+                detReq.input('absDays', sql.SmallInt, emp.AbsenceDays);
+                detReq.input('absAmount', sql.Decimal(7, 2), emp.absenceAmount);
+                detReq.input('branch', sql.SmallInt, emp.BranchID || 1);
+                detReq.input('empworkID', sql.Int, emp.workerTypeId || null);
+                detReq.input('byan', sql.NVarChar, `راتب ${emp.empName} شهر ${month}`);
+
+                await detReq.query(`
+                    INSERT INTO tbl_ExpensesDetalis 
+                    (IDExpense, empolyee_ID, expenseAmount, salary, extraTime, badal, Reward, 
+                     penalty, busSub, qstSolfa, Solfa, [absence's _Day], absence, 
+                     expenseBranchtxt, empworkID, expenseKind, Byan)
+                    VALUES 
+                    (@expID, @empID, @expenseAmount, @salary, @extraTime, @badal, @reward, 
+                     @penalty, @busSub, @qstSolfa, @solfa, @absDays, @absAmount, 
+                     @branch, @empworkID, 8, @byan)
+                `);
+            }
+
+            await transaction.commit();
+
+            return res.status(200).json({
+                status: 'draft',
+                expenseId: expenseID,
+                data: payroll
+            });
+
+        } catch (innerErr) {
+            await transaction.rollback();
+            throw innerErr;
+        }
 
     } catch (err) {
-        console.error("Preview Payroll Error: ", err);
+        console.error("Fetch Payroll Error:", err);
         res.status(500).json({ error: err.message });
     }
 };
 
 // =========================================================================
-// 2. دالة الاعتماد، الحفظ، وتقفيل الحركات (Confirm)
+// 2. تحديث المسودة بعد التعديل اليدوي - updateDraft
 // =========================================================================
-const confirmPayroll = async (req, res) => {
-    // payrollList: تأتي من فلاتر مجمعة وجاهزة (Rewards تحتوي كل الإضافات، Deductions تحتوي كل الخصومات)
-    const { month, year, user, branchId, payrollList } = req.body;
+const updateDraft = async (req, res) => {
+    const { expenseId, user, payrollList } = req.body;
 
-    if (!payrollList || payrollList.length === 0) {
-        return res.status(400).json({ message: 'القائمة فارغة لا يمكن الحفظ' });
+    if (!expenseId || !payrollList || payrollList.length === 0) {
+        return res.status(400).json({ message: 'بيانات ناقصة' });
     }
 
     const transaction = new sql.Transaction();
@@ -91,117 +312,155 @@ const confirmPayroll = async (req, res) => {
     try {
         await transaction.begin();
 
-        // 🌟 حساب تاريخ "آخر يوم في الشهر" لتسجيل الفاتورة محاسبياً بشكل صحيح
-        // في الجافاسكريبت: وضع اليوم = 0 يعطينا آخر يوم في الشهر الذي يسبقه
-        const lastDayOfMonth = new Date(year, month, 0, 23, 59, 59);
-        const headerByan = `رواتب موظفين شهر ${month}/${year}`; 
+        // التأكد إن المسودة لسه مش معتمدة
+        const checkReq = new sql.Request(transaction);
+        checkReq.input('expID', sql.Int, expenseId);
+        const checkResult = await checkReq.query(
+            'SELECT salaryDone FROM tbl_expenses WHERE ID = @expID'
+        );
 
-        // 1️⃣ تسجيل "رأس" الحركة في جدول المصروفات بالتاريخ الجديد
-        const requestHead = new sql.Request(transaction);
-        requestHead.input('date', sql.DateTime, lastDayOfMonth); 
-        requestHead.input('user', sql.VarChar, user);
-        requestHead.input('byan', sql.VarChar, headerByan);
+        if (checkResult.recordset.length === 0) {
+            await transaction.rollback();
+            return res.status(404).json({ message: 'السجل غير موجود' });
+        }
+        if (checkResult.recordset[0].salaryDone === true || checkResult.recordset[0].salaryDone === 1) {
+            await transaction.rollback();
+            return res.status(400).json({ message: 'لا يمكن تعديل مرتبات معتمدة' });
+        }
 
-        const headResult = await requestHead.query(`
-            INSERT INTO tbl_expenses (expenseDate, Kind, userAdd, Addtime, salaryDone, expenseByan)
-            OUTPUT inserted.ID
-            VALUES (@date, 'مرتبات', @user, GETDATE(), 1, @byan)
+        // حذف التفاصيل القديمة
+        const delReq = new sql.Request(transaction);
+        delReq.input('expID', sql.Int, expenseId);
+        await delReq.query('DELETE FROM tbl_ExpensesDetalis WHERE IDExpense = @expID');
+
+        // تحديث الهيدر
+        const updReq = new sql.Request(transaction);
+        updReq.input('expID', sql.Int, expenseId);
+        updReq.input('user', sql.NVarChar, user || 'ManualSave');
+        await updReq.query(`
+            UPDATE tbl_expenses 
+            SET useredit = @user, editTime = GETDATE()
+            WHERE ID = @expID
         `);
-        const expenseID = headResult.recordset[0].ID;
 
-        // 2️⃣ تسجيل شريط قبض كل موظف + تقفيل حركاته
+        // إدراج التفاصيل المعدلة
         for (const emp of payrollList) {
-            const requestDetail = new sql.Request(transaction);
-            requestDetail.input('expID', sql.Int, expenseID);
-            requestDetail.input('empID', sql.Int, emp.EmpID);
-            requestDetail.input('net', sql.Decimal(9, 2), emp.NetSalary);
-            requestDetail.input('base', sql.Decimal(7, 2), emp.BaseSalary); // تأكدنا من توافق الاسم مع فلاتر
-            
-            // نأخذ المجمّع من فلاتر
-            requestDetail.input('reward', sql.Decimal(7, 2), emp.Rewards);
-            requestDetail.input('deduct', sql.Decimal(7, 2), emp.Deductions);
-            
-            requestDetail.input('absDays', sql.SmallInt, emp.AbsenceDays);
-            requestDetail.input('absAmount', sql.Decimal(7, 2), emp.AbsenceDeductionAmount);
-            requestDetail.input('qstSolfa', sql.Decimal(7, 2), emp.qstSolfa);
-            requestDetail.input('solfa', sql.Decimal(7, 0), emp.Solfa);
-            requestDetail.input('branch', sql.SmallInt, branchId || 1);
-            requestDetail.input('byan', sql.VarChar, `راتب ${emp.empName} شهر ${month}`);
+            const detReq = new sql.Request(transaction);
+            detReq.input('expID', sql.Int, expenseId);
+            detReq.input('empID', sql.Int, emp.EmpID);
+            detReq.input('expenseAmount', sql.Decimal(9, 2), emp.netForDB);
+            detReq.input('salary', sql.Decimal(7, 2), emp.BaseSalary);
+            detReq.input('extraTime', sql.Decimal(7, 2), emp.extraTime);
+            detReq.input('badal', sql.Decimal(7, 2), emp.badal);
+            detReq.input('reward', sql.Decimal(7, 2), emp.Reward);
+            detReq.input('penalty', sql.Decimal(7, 2), emp.penalty);
+            detReq.input('busSub', sql.Decimal(7, 2), emp.busSub);
+            detReq.input('qstSolfa', sql.Decimal(7, 2), emp.qstSolfa);
+            detReq.input('solfa', sql.Decimal(7, 2), emp.Solfa);
+            detReq.input('absDays', sql.SmallInt, emp.AbsenceDays);
+            detReq.input('absAmount', sql.Decimal(7, 2), emp.absenceAmount);
+            detReq.input('branch', sql.SmallInt, emp.BranchID || 1);
+            detReq.input('empworkID', sql.Int, emp.workerTypeId || null);
+            detReq.input('notes', sql.NVarChar, emp.Notes || '');
+            detReq.input('byan', sql.NVarChar, emp.Byan || '');
 
-            // إدخال التفاصيل بنوع مصروف 8
-            await requestDetail.query(`
+            await detReq.query(`
                 INSERT INTO tbl_ExpensesDetalis 
-                (IDExpense, empolyee_ID, expenseAmount, salary, Reward, penalty, absence, [absence's _Day], qstSolfa, Solfa, expenseBranchtxt, expenseKind, Byan)
+                (IDExpense, empolyee_ID, expenseAmount, salary, extraTime, badal, Reward, 
+                 penalty, busSub, qstSolfa, Solfa, [absence's _Day], absence, 
+                 expenseBranchtxt, empworkID, expenseKind, Byan, Notes)
                 VALUES 
-                (@expID, @empID, @net, @base, @reward, @deduct, @absAmount, @absDays, @qstSolfa, @solfa, @branch, 8, @byan)
-            `);
-
-            // تحديث جدول الإشراف وتصفير الحركات (done = 1) لهذا الموظف فقط
-            const updateRequest = new sql.Request(transaction);
-            updateRequest.input('empID', sql.Int, emp.EmpID);
-            updateRequest.input('m', sql.Int, month);
-            updateRequest.input('y', sql.Int, year);
-            
-            await updateRequest.query(`
-                UPDATE tbl_eshraf 
-                SET done = 1 
-                WHERE empolyeeID = @empID AND MONTH(datePenalty) = @m AND YEAR(datePenalty) = @y AND done = 0
+                (@expID, @empID, @expenseAmount, @salary, @extraTime, @badal, @reward, 
+                 @penalty, @busSub, @qstSolfa, @solfa, @absDays, @absAmount, 
+                 @branch, @empworkID, 8, @byan, @notes)
             `);
         }
 
-        // 3️⃣ تأكيد الحفظ في قاعدة البيانات
         await transaction.commit();
-        res.status(201).json({ message: 'تم الاعتماد بنجاح ✅' });
+        res.status(200).json({ message: 'تم حفظ التعديلات بنجاح 💾' });
 
     } catch (err) {
         await transaction.rollback();
-        console.error("Confirm Payroll Error: ", err);
-        res.status(500).json({ message: 'فشل صرف الرواتب', error: err.message });
+        console.error("Update Draft Error:", err);
+        res.status(500).json({ message: 'فشل حفظ التعديلات', error: err.message });
     }
 };
 
 // =========================================================================
-// 3. دالة جلب الأرشيف (تعتمد على التاريخ والنوع)
+// 3. اعتماد الرواتب - approvePayroll
+//    - salaryDone = 1
+//    - done = 1 في tbl_eshraf
 // =========================================================================
-const getPayrollHistory = async (req, res) => {
-    const { month, year } = req.query;
+const approvePayroll = async (req, res) => {
+    const { expenseId, month, year, user } = req.body;
+
+    if (!expenseId || !month || !year) {
+        return res.status(400).json({ message: 'بيانات ناقصة' });
+    }
+
+    const transaction = new sql.Transaction();
 
     try {
-        // 🌟 البحث باستخدام الشهر والسنة من حقل التاريخ (expenseDate)
-        const query = `
-            SELECT 
-                e.ID as EmpID,
-                e.empName,
-                e.mobile1,
-                e.job,
-                d.salary as BaseSalary,
-                d.Reward as Rewards,   -- المجمعة
-                d.penalty as Deductions, -- المجمعة
-                d.qstSolfa as qstSolfa,
-                d.Solfa as Solfa,
-                d.[absence's _Day] as AbsenceDays,
-                d.absence as AbsenceDeductionAmount,
-                d.expenseAmount as NetSalary
-            FROM tbl_ExpensesDetalis d
-            INNER JOIN tbl_expenses ex ON d.IDExpense = ex.ID
-            INNER JOIN tbl_empolyee e ON d.empolyee_ID = e.ID
-            WHERE ex.Kind = 'مرتبات' 
-              AND MONTH(ex.expenseDate) = @m 
-              AND YEAR(ex.expenseDate) = @y
-        `;
+        await transaction.begin();
 
-        const request = new sql.Request();
-        request.input('m', sql.Int, month);
-        request.input('y', sql.Int, year);
+        // التأكد إن المسودة موجودة ومش معتمدة
+        const checkReq = new sql.Request(transaction);
+        checkReq.input('expID', sql.Int, expenseId);
+        const checkResult = await checkReq.query(
+            'SELECT salaryDone FROM tbl_expenses WHERE ID = @expID'
+        );
 
-        const result = await request.query(query);
+        if (checkResult.recordset.length === 0) {
+            await transaction.rollback();
+            return res.status(404).json({ message: 'السجل غير موجود' });
+        }
+        if (checkResult.recordset[0].salaryDone === true || checkResult.recordset[0].salaryDone === 1) {
+            await transaction.rollback();
+            return res.status(400).json({ message: 'المرتبات معتمدة بالفعل' });
+        }
 
-        res.status(200).json(result.recordset);
+        // 1️⃣ تحديث salaryDone = 1
+        const updReq = new sql.Request(transaction);
+        updReq.input('expID', sql.Int, expenseId);
+        updReq.input('user', sql.NVarChar, user || 'Admin');
+        await updReq.query(`
+            UPDATE tbl_expenses 
+            SET salaryDone = 1, useredit = @user, editTime = GETDATE()
+            WHERE ID = @expID
+        `);
+
+        // 2️⃣ جلب قائمة الموظفين في هذا المرتب
+        const empReq = new sql.Request(transaction);
+        empReq.input('expID', sql.Int, expenseId);
+        const empList = await empReq.query(
+            'SELECT empolyee_ID FROM tbl_ExpensesDetalis WHERE IDExpense = @expID'
+        );
+
+        // 3️⃣ تقفيل done = 1 في tbl_eshraf لكل موظف
+        for (const emp of empList.recordset) {
+            const eshReq = new sql.Request(transaction);
+            eshReq.input('empID', sql.Int, emp.empolyee_ID);
+            eshReq.input('month', sql.Int, parseInt(month));
+            eshReq.input('year', sql.Int, parseInt(year));
+
+            await eshReq.query(`
+                UPDATE tbl_eshraf 
+                SET done = 1 
+                WHERE empolyeeID = @empID 
+                  AND MONTH(datePenalty) = @month 
+                  AND YEAR(datePenalty) = @year 
+                  AND done = 0
+            `);
+        }
+
+        await transaction.commit();
+        res.status(200).json({ message: 'تم اعتماد الرواتب بنجاح ✅' });
 
     } catch (err) {
-        console.error("History Payroll Error: ", err);
-        res.status(500).json({ error: err.message });
+        await transaction.rollback();
+        console.error("Approve Payroll Error:", err);
+        res.status(500).json({ message: 'فشل الاعتماد', error: err.message });
     }
 };
 
-module.exports = { previewPayroll, confirmPayroll, getPayrollHistory };
+module.exports = { fetchPayroll, updateDraft, approvePayroll };
