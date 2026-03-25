@@ -177,4 +177,45 @@ const confirmPayroll = async (req, res) => {
     }
 };
 
-module.exports = { previewPayroll, confirmPayroll };
+// 3. دالة جلب كشف رواتب قديم (من الأرشيف)
+const getPayrollHistory = async (req, res) => {
+    const { month, year } = req.query;
+
+    try {
+        // بنعتمد على الـ Byan اللي إحنا سجلناه وقت الحفظ
+        const searchByan = `رواتب موظفين شهر ${month}/${year}`;
+
+        const query = `
+            SELECT 
+                e.ID as EmpID,
+                e.empName,
+                e.mobile1,
+                e.job,
+                d.salary as BaseSalary,
+                d.Reward as Rewards,
+                d.penalty as Deductions,
+                d.qstSolfa as qstSolfa,
+                d.Solfa as Solfa,
+                d.[absence's _Day] as AbsenceDays,
+                d.absence as AbsenceDeductionAmount,
+                d.expenseAmount as NetSalary
+            FROM tbl_ExpensesDetalis d
+            INNER JOIN tbl_expenses ex ON d.IDExpense = ex.ID
+            INNER JOIN tbl_empolyee e ON d.empolyee_ID = e.ID
+            WHERE ex.Kind = 'مرتبات' AND ex.expenseByan = @byan
+        `;
+
+        const request = new sql.Request();
+        request.input('byan', sql.NVarChar, searchByan);
+
+        const result = await request.query(query);
+
+        res.status(200).json(result.recordset);
+
+    } catch (err) {
+        console.error("History Payroll Error: ", err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+module.exports = { previewPayroll, confirmPayroll, getPayrollHistory };

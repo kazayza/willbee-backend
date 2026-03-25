@@ -6,6 +6,8 @@ const controller = require('../controllers/salaryController');
 // Example: /api/salaries/preview?month=1&year=2025
 router.get('/preview', controller.previewPayroll);
 
+router.get('/history', controller.getPayrollHistory);
+
 // 2. اعتماد الرواتب (POST)
 router.post('/confirm', controller.confirmPayroll);
 
