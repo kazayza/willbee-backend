@@ -1,5 +1,5 @@
 const { sql } = require('../config/db');
-const axios = require('axios'); // مكتبة مسؤولة عن إرسال طلبات الـ API للواتساب
+// مكتبة مسؤولة عن إرسال طلبات الـ API للواتساب
 
 // 1. دالة المعاينة وتجهيز الرواتب (Preview)
 const previewPayroll = async (req, res) => {
