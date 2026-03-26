@@ -76,67 +76,72 @@ const saveAbsenceList = async (req, res) => {
         // 🚀 إرسال إشعار تجاوز الحد (لـ Admin و PRUser)
         // ============================================================
         
-        // 1. التحقق من التجاوز
-        if (absentChildren && absentChildren.length > 0) {
-            const ids = absentChildren.map(c => c.childId).join(',');
-            
-            // كويري يجيب الأطفال اللي غابوا أكتر من 3 مرات في نفس الشهر
-            const alertQuery = `
-                SELECT 
-                    C.ID_Child,
-                    C.FullNameArabic, 
-                    COUNT(*) as Count,
-                    ISNULL(Cl.ClassName, 'فصل غير محدد') as ClassName,
-                    ISNULL(B.branchName, 'فرع غير محدد') as branchName
-                FROM tbl_absenceDetalis D
-                INNER JOIN tbl_absenseChild M ON D.ID = M.ID
-                INNER JOIN tbl_Child C ON D.Child_code = C.ID_Child
-                
-                -- نستخدم LEFT JOIN عشان لو ملوش فصل ميضربش الكويري
-                LEFT JOIN tbl_ChildClassHistory H ON C.ID_Child = H.Child_ID AND H.LeaveDate IS NULL
-                LEFT JOIN tbl_Classroom Cl ON H.Class_ID = Cl.Class_ID
-                LEFT JOIN tbl_Branch B ON C.Branch = B.IDbranch
-                
-                WHERE D.Child_code IN (${ids})
-                AND MONTH(M.Databsense) = MONTH(@date)
-                AND YEAR(M.Databsense) = YEAR(@date)
-                
-                GROUP BY C.ID_Child, C.FullNameArabic, Cl.ClassName, B.branchName
-                HAVING COUNT(*) > 3
-            `;
-            
-            const requestAlert = new sql.Request();
-            requestAlert.input('date', sql.Date, date);
-            const alertResult = await requestAlert.query(alertQuery);
+        // ============================================================
+// 🚀 إرسال إشعار الغياب المتتالي (يومين متتاليين)
+// ============================================================
 
-            // لو لقينا أطفال تجاوزوا الحد
-            if (alertResult.recordset.length > 0) {
-                
-                // 2. نجيب المستخدمين المستهدفين (Admin + PRUser)
-                const targetUsersRequest = new sql.Request();
-                const targetUsers = await targetUsersRequest.query(`
-                    SELECT UserId FROM tbl_users 
-                    WHERE Role IN ('Admin', 'PRUser') -- 👈 التعديل حسب طلبك
-                `);
+if (absentChildren && absentChildren.length > 0) {
+    
+    // بناء الـ parameters بشكل آمن
+    const requestAlert = new sql.Request();
+    requestAlert.input('date', sql.Date, date);
+    
+    const safeIds = absentChildren.map((c, i) => {
+        requestAlert.input(`childId${i}`, sql.Int, c.childId);
+        return `@childId${i}`;
+    }).join(',');
 
-                 // 3. إرسال الإشعارات
-                for (const record of alertResult.recordset) {
-                    // الرسالة التفصيلية الجديدة
-                    const message = `تجاوز الطالب "${record.FullNameArabic}" (${record.branchName} - ${record.ClassName}) حد الغياب (${record.Count} أيام)`;
-                    
-                    for (const u of targetUsers.recordset) {
-                        createAndPushNotification(
-                            u.UserId,
-                            '⚠️ تنبيه غياب متكرر',
-                            message,
-                            'Absence',
-                            'child_profile',
-                            record.ID_Child
-                        ).catch(err => console.error("Notification Failed:", err));
-                    }
-                }
+    // كويري يجيب الأطفال اللي غابوا يومين متتاليين
+    const alertQuery = `
+        SELECT 
+            C.ID_Child,
+            C.FullNameArabic,
+            ISNULL(Cl.ClassName, 'فصل غير محدد') as ClassName,
+            ISNULL(B.branchName, 'فرع غير محدد') as branchName
+        FROM tbl_Child C
+        LEFT JOIN tbl_ChildClassHistory H ON C.ID_Child = H.Child_ID AND H.LeaveDate IS NULL
+        LEFT JOIN tbl_Classroom Cl ON H.Class_ID = Cl.Class_ID
+        LEFT JOIN tbl_Branch B ON C.Branch = B.IDbranch
+        WHERE C.ID_Child IN (${safeIds})
+        AND EXISTS (
+            -- نتحقق إن الطفل كان غايب امبارح كمان
+            SELECT 1 
+            FROM tbl_absenceDetalis D2
+            INNER JOIN tbl_absenseChild M2 ON D2.ID = M2.ID
+            WHERE D2.Child_code = C.ID_Child
+            AND CAST(M2.Databsense AS DATE) = DATEADD(DAY, -1, @date)
+        )
+    `;
+    
+    const alertResult = await requestAlert.query(alertQuery);
+
+    // لو لقينا أطفال غابوا يومين متتاليين
+    if (alertResult.recordset.length > 0) {
+        
+        // نجيب المستخدمين المستهدفين (Admin + PRUser)
+        const targetUsersRequest = new sql.Request();
+        const targetUsers = await targetUsersRequest.query(`
+            SELECT UserId FROM tbl_users 
+            WHERE Role IN ('Admin', 'PRUser')
+        `);
+
+        // إرسال الإشعارات
+        for (const record of alertResult.recordset) {
+            const message = `⚠️ الطالب "${record.FullNameArabic}" (${record.branchName} - ${record.ClassName}) غائب يومين متتاليين`;
+            
+            for (const u of targetUsers.recordset) {
+                createAndPushNotification(
+                    u.UserId,
+                    '🔴 تنبيه غياب متتالي',
+                    message,
+                    'Absence',
+                    'child_profile',
+                    record.ID_Child
+                ).catch(err => console.error("Notification Failed:", err));
             }
         }
+    }
+}
 
         // الرد النهائي (بدون رسالة التنبيه النصية خلاص)
         res.status(200).json({ message: 'تم حفظ الغياب بنجاح ✅' });
