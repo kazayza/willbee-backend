@@ -25,7 +25,8 @@ const getProfitLossReport = async (req, res) => {
             FROM tbl_incomeDetalis ind
             INNER JOIN tbl_income inc ON ind.IDincome = inc.ID
             INNER JOIN tbl_incomeKind ik ON ind.incomeKind = ik.ID
-            WHERE inc.incomeDate BETWEEN @startDate AND @endDate
+            WHERE inc.incomeDate >= @startDate
+AND inc.incomeDate < DATEADD(day, 1, @endDate)
               AND ik.kindGroup NOT IN (N'رصيد مرحل', N'رصيد افتتاحي لاكاديميه')
         `;
 
@@ -39,7 +40,8 @@ const getProfitLossReport = async (req, res) => {
             FROM tbl_ExpensesDetalis ed
             INNER JOIN tbl_expenses ex ON ed.IDExpense = ex.ID
             INNER JOIN tbl_expenseKind ek ON ed.expenseKind = ek.ID
-            WHERE ex.expenseDate BETWEEN @startDate AND @endDate
+            WHERE ex.expenseDate >= @startDate
+AND ex.expenseDate < DATEADD(day, 1, @endDate)
               AND ek.KindGroup NOT IN (N'ارصده ايجار دائنه', N'توزيعات ارباح')
         `;
 
@@ -240,7 +242,8 @@ const getProfitLossSummary = async (req, res) => {
             FROM tbl_incomeDetalis ind
             INNER JOIN tbl_income inc ON ind.IDincome = inc.ID
             INNER JOIN tbl_incomeKind ik ON ind.incomeKind = ik.ID
-            WHERE inc.incomeDate BETWEEN @startDate AND @endDate
+            WHERE inc.incomeDate >= @startDate
+            AND inc.incomeDate < DATEADD(day, 1, @endDate)
               AND ik.kindGroup NOT IN (N'رصيد مرحل', N'رصيد افتتاحي لاكاديميه')
         `;
         
@@ -250,7 +253,8 @@ const getProfitLossSummary = async (req, res) => {
             FROM tbl_ExpensesDetalis ed
             INNER JOIN tbl_expenses ex ON ed.IDExpense = ex.ID
             INNER JOIN tbl_expenseKind ek ON ed.expenseKind = ek.ID
-            WHERE ex.expenseDate BETWEEN @startDate AND @endDate
+            WHERE ex.expenseDate >= @startDate
+             AND ex.expenseDate < DATEADD(day, 1, @endDate)
               AND ek.KindGroup NOT IN (N'ارصده ايجار دائنه', N'توزيعات ارباح')
         `;
         
@@ -316,7 +320,8 @@ const comparePeriods = async (req, res) => {
                 FROM tbl_incomeDetalis ind
                 INNER JOIN tbl_income inc ON ind.IDincome = inc.ID
                 INNER JOIN tbl_incomeKind ik ON ind.incomeKind = ik.ID
-                WHERE inc.incomeDate BETWEEN @startDate AND @endDate
+                WHERE inc.incomeDate >= @startDate
+AND inc.incomeDate < DATEADD(day, 1, @endDate)
                   AND ik.kindGroup NOT IN (N'رصيد مرحل', N'رصيد افتتاحي لاكاديميه')
             `;
 
@@ -325,7 +330,8 @@ const comparePeriods = async (req, res) => {
                 FROM tbl_ExpensesDetalis ed
                 INNER JOIN tbl_expenses ex ON ed.IDExpense = ex.ID
                 INNER JOIN tbl_expenseKind ek ON ed.expenseKind = ek.ID
-                WHERE ex.expenseDate BETWEEN @startDate AND @endDate
+                WHERE ex.expenseDate >= @startDate
+AND ex.expenseDate < DATEADD(day, 1, @endDate)
                   AND ek.KindGroup NOT IN (N'ارصده ايجار دائنه', N'توزيعات ارباح')
             `;
 
@@ -513,7 +519,8 @@ const getReportByBranch = async (req, res) => {
                 FROM tbl_incomeDetalis ind
                 INNER JOIN tbl_income inc ON ind.IDincome = inc.ID
                 INNER JOIN tbl_incomeKind ik ON ind.incomeKind = ik.ID
-                WHERE inc.incomeDate BETWEEN @startDate AND @endDate
+                WHERE inc.incomeDate >= @startDate
+AND inc.incomeDate < DATEADD(day, 1, @endDate)
                   AND ik.kindGroup NOT IN (N'رصيد مرحل', N'رصيد افتتاحي لاكاديميه')
                 GROUP BY ind.incomBranchtxt
             ) inc_data ON b.IDbranch = inc_data.BranchID
@@ -524,7 +531,8 @@ const getReportByBranch = async (req, res) => {
                 FROM tbl_ExpensesDetalis ed
                 INNER JOIN tbl_expenses ex ON ed.IDExpense = ex.ID
                 INNER JOIN tbl_expenseKind ek ON ed.expenseKind = ek.ID
-                WHERE ex.expenseDate BETWEEN @startDate AND @endDate
+                WHERE ex.expenseDate >= @startDate
+AND ex.expenseDate < DATEADD(day, 1, @endDate)
                   AND ek.KindGroup NOT IN (N'ارصده ايجار دائنه', N'توزيعات ارباح')
                 GROUP BY ed.expenseBranchtxt
             ) exp_data ON b.IDbranch = exp_data.BranchID
