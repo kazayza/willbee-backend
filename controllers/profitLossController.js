@@ -189,62 +189,95 @@ const getProfitLossReport = async (req, res) => {
 // ============================================
 // 📊 ملخص سريع للـ Dashboard
 // ============================================
+// ============================================
+// 📊 ملخص سريع للـ Dashboard
+// ============================================
 const getProfitLossSummary = async (req, res) => {
     try {
         const { period } = req.query; // 'today', 'week', 'month', 'year'
         
-        let dateCondition = '';
+        let startDate, endDate;
+        const now = new Date();
+        
         switch (period) {
             case 'today':
-                dateCondition = `CAST(GETDATE() AS DATE)`;
+                startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                 break;
+                
             case 'week':
-                dateCondition = `DATEADD(WEEK, -1, GETDATE())`;
+                startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+                endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                 break;
+                
             case 'month':
-                dateCondition = `DATEADD(MONTH, -1, GETDATE())`;
+                // 🔥 التعديل هنا: من أول يوم في الشهر لآخر يوم في الشهر
+                startDate = new Date(now.getFullYear(), now.getMonth(), 1);      // أول يوم
+                endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);     // آخر يوم
                 break;
+                
             case 'year':
-                dateCondition = `DATEADD(YEAR, -1, GETDATE())`;
+                startDate = new Date(now.getFullYear(), 0, 1);     // أول يوم في السنة
+                endDate = new Date(now.getFullYear(), 11, 31);     // آخر يوم في السنة
                 break;
+                
             default:
-                dateCondition = `DATEADD(MONTH, -1, GETDATE())`;
+                startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+                endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
         }
-
-        const query = `
-            -- إجمالي الإيرادات
-            SELECT 
-                'income' AS type,
-                ISNULL(SUM(ind.incomeAmount), 0) AS total
+        
+        // تنسيق التواريخ لـ SQL
+        const formatDate = (date) => {
+            return date.toISOString().split('T')[0];
+        };
+        
+        const formattedStartDate = formatDate(startDate);
+        const formattedEndDate = formatDate(endDate);
+        
+        // استعلام الإيرادات
+        const incomeQuery = `
+            SELECT ISNULL(SUM(ind.incomeAmount), 0) AS total
             FROM tbl_incomeDetalis ind
             INNER JOIN tbl_income inc ON ind.IDincome = inc.ID
             INNER JOIN tbl_incomeKind ik ON ind.incomeKind = ik.ID
-            WHERE inc.incomeDate >= ${dateCondition}
+            WHERE inc.incomeDate BETWEEN @startDate AND @endDate
               AND ik.kindGroup NOT IN (N'رصيد مرحل', N'رصيد افتتاحي لاكاديميه')
-
-            UNION ALL
-
-            -- إجمالي المصروفات
-            SELECT 
-                'expense' AS type,
-                ISNULL(SUM(ed.expenseAmount), 0) AS total
+        `;
+        
+        // استعلام المصروفات
+        const expenseQuery = `
+            SELECT ISNULL(SUM(ed.expenseAmount), 0) AS total
             FROM tbl_ExpensesDetalis ed
             INNER JOIN tbl_expenses ex ON ed.IDExpense = ex.ID
             INNER JOIN tbl_expenseKind ek ON ed.expenseKind = ek.ID
-            WHERE ex.expenseDate >= ${dateCondition}
+            WHERE ex.expenseDate BETWEEN @startDate AND @endDate
               AND ek.KindGroup NOT IN (N'ارصده ايجار دائنه', N'توزيعات ارباح')
         `;
-
-        const result = await sql.query(query);
         
-        const income = result.recordset.find(r => r.type === 'income')?.total || 0;
-        const expense = result.recordset.find(r => r.type === 'expense')?.total || 0;
+        const request = new sql.Request();
+        request.input('startDate', sql.Date, new Date(formattedStartDate));
+        request.input('endDate', sql.Date, new Date(formattedEndDate));
+        
+        const [incomeResult, expenseResult] = await Promise.all([
+            request.query(incomeQuery),
+            new sql.Request()
+                .input('startDate', sql.Date, new Date(formattedStartDate))
+                .input('endDate', sql.Date, new Date(formattedEndDate))
+                .query(expenseQuery)
+        ]);
+        
+        const income = incomeResult.recordset[0]?.total || 0;
+        const expense = expenseResult.recordset[0]?.total || 0;
         const netProfit = income - expense;
         const profitMargin = income > 0 ? ((netProfit / income) * 100).toFixed(2) : 0;
-
+        
         res.status(200).json({
             success: true,
             period: period || 'month',
+            range: {
+                startDate: formattedStartDate,
+                endDate: formattedEndDate
+            },
             data: {
                 totalIncome: income,
                 totalExpenses: expense,
@@ -253,7 +286,7 @@ const getProfitLossSummary = async (req, res) => {
                 isProfit: netProfit >= 0
             }
         });
-
+        
     } catch (err) {
         console.error('❌ Summary Error:', err);
         res.status(500).json({ error: err.message });
