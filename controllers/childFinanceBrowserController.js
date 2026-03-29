@@ -262,12 +262,63 @@ const getSessionRecords = async (req, res) => {
         if (!['all', 'study', 'bus'].includes(kind)) kind = 'all';
         if (!['list', 'month'].includes(viewMode)) viewMode = 'list';
         if (!['subDate', 'name', 'amount'].includes(sortBy)) sortBy = 'subDate';
-        if (!['asc', 'desc'].includes(sortOrder.toLowerCase())) sortOrder = 'desc';
+        if (!['asc', 'desc'].includes((sortOrder || '').toLowerCase())) sortOrder = 'desc';
 
         const normalizedSearch = normalizeArabic(search);
 
+        // labels للفلاتر
+        const statusLabelMap = {
+            active: 'النشطون',
+            withdrawn: 'المنسحبون',
+            all: 'الكل'
+        };
+
+        const kindLabelMap = {
+            all: 'الكل',
+            study: 'اشتراك الدراسة السنوى',
+            bus: 'اشتراك الباص'
+        };
+
         // ----------------------------------------
-        // 1) جلب البيانات الأساسية كاملة ثم فلترة البحث الذكي في Node.js
+        // 1) جلب اسم العام المالي
+        // ----------------------------------------
+        const sessionRequest = new sql.Request();
+        sessionRequest.input('sessionId', sql.Int, parseInt(sessionId));
+
+        const sessionResult = await sessionRequest.query(`
+            SELECT IDSession AS sessionId, Sessions AS sessionName
+            FROM tbl_Sessions
+            WHERE IDSession = @sessionId
+        `);
+
+        if (sessionResult.recordset.length === 0) {
+            return res.status(404).json({ error: 'العام المالي غير موجود' });
+        }
+
+        const session = sessionResult.recordset[0];
+
+        // ----------------------------------------
+        // 2) جلب اسم الفرع لو محدد
+        // ----------------------------------------
+        let branchLabel = 'الكل';
+
+        if (branchId !== 'all' && !isNaN(branchId)) {
+            const branchRequest = new sql.Request();
+            branchRequest.input('branchId', sql.SmallInt, parseInt(branchId));
+
+            const branchResult = await branchRequest.query(`
+                SELECT IDbranch AS branchId, branchName
+                FROM tbl_Branch
+                WHERE IDbranch = @branchId
+            `);
+
+            if (branchResult.recordset.length > 0) {
+                branchLabel = branchResult.recordset[0].branchName;
+            }
+        }
+
+        // ----------------------------------------
+        // 3) جلب البيانات الأساسية كاملة ثم فلترة البحث الذكي في Node.js
         // ----------------------------------------
         let baseQuery = `
             SELECT
@@ -322,7 +373,7 @@ const getSessionRecords = async (req, res) => {
         let records = result.recordset || [];
 
         // ----------------------------------------
-        // 2) البحث الذكي بالعربي
+        // 4) البحث الذكي بالعربي
         // ----------------------------------------
         if (normalizedSearch) {
             records = records.filter(item => {
@@ -332,7 +383,7 @@ const getSessionRecords = async (req, res) => {
         }
 
         // ----------------------------------------
-        // 3) الترتيب
+        // 5) الترتيب
         // ----------------------------------------
         records.sort((a, b) => {
             let compareA;
@@ -360,10 +411,15 @@ const getSessionRecords = async (req, res) => {
         });
 
         // ----------------------------------------
-        // 4) summary
+        // 6) summary أقوى
         // ----------------------------------------
         const totalAmount = records.reduce((sum, item) => sum + parseFloat(item.amountSub || 0), 0);
         const amounts = records.map(item => parseFloat(item.amountSub || 0));
+
+        const subDates = records
+            .map(item => item.subDate ? new Date(item.subDate) : null)
+            .filter(Boolean)
+            .sort((a, b) => a - b);
 
         const summary = {
             recordsCount: records.length,
@@ -371,11 +427,13 @@ const getSessionRecords = async (req, res) => {
             totalAmount,
             averageAmount: records.length > 0 ? totalAmount / records.length : 0,
             minAmount: amounts.length > 0 ? Math.min(...amounts) : 0,
-            maxAmount: amounts.length > 0 ? Math.max(...amounts) : 0
+            maxAmount: amounts.length > 0 ? Math.max(...amounts) : 0,
+            firstSubDate: subDates.length > 0 ? subDates[0] : null,
+            lastSubDate: subDates.length > 0 ? subDates[subDates.length - 1] : null
         };
 
         // ----------------------------------------
-        // 5) وضع العرض list
+        // 7) list mode أو لو فيه بحث
         // ----------------------------------------
         if (viewMode === 'list' || normalizedSearch) {
             const totalRecords = records.length;
@@ -385,9 +443,7 @@ const getSessionRecords = async (req, res) => {
 
             return res.status(200).json({
                 success: true,
-                session: {
-                    sessionId: parseInt(sessionId)
-                },
+                session,
                 filters: {
                     branchId,
                     status,
@@ -398,6 +454,11 @@ const getSessionRecords = async (req, res) => {
                     sortOrder,
                     page,
                     pageSize
+                },
+                appliedFiltersLabels: {
+                    branchLabel,
+                    statusLabel: statusLabelMap[status] || 'النشطون',
+                    kindLabel: kindLabelMap[kind] || 'الكل'
                 },
                 summary,
                 records: pagedRecords,
@@ -411,12 +472,12 @@ const getSessionRecords = async (req, res) => {
         }
 
         // ----------------------------------------
-        // 6) وضع العرض حسب الشهر
+        // 8) month mode
         // ----------------------------------------
         const groupedMap = {};
 
         records.forEach(item => {
-            let monthKey = 'بدون-تاريخ';
+            let monthKey = 'without-date';
             let monthLabel = 'بدون تاريخ';
 
             if (item.subDate) {
@@ -451,8 +512,8 @@ const getSessionRecords = async (req, res) => {
         let groups = Object.values(groupedMap);
 
         groups.sort((a, b) => {
-            if (a.monthKey === 'بدون-تاريخ') return 1;
-            if (b.monthKey === 'بدون-تاريخ') return -1;
+            if (a.monthKey === 'without-date') return 1;
+            if (b.monthKey === 'without-date') return -1;
 
             if (a.monthKey < b.monthKey) return sortOrder === 'asc' ? -1 : 1;
             if (a.monthKey > b.monthKey) return sortOrder === 'asc' ? 1 : -1;
@@ -461,9 +522,7 @@ const getSessionRecords = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            session: {
-                sessionId: parseInt(sessionId)
-            },
+            session,
             filters: {
                 branchId,
                 status,
@@ -472,6 +531,11 @@ const getSessionRecords = async (req, res) => {
                 viewMode: 'month',
                 sortBy,
                 sortOrder
+            },
+            appliedFiltersLabels: {
+                branchLabel,
+                statusLabel: statusLabelMap[status] || 'النشطون',
+                kindLabel: kindLabelMap[kind] || 'الكل'
             },
             summary,
             groups
