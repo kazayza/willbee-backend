@@ -33,31 +33,31 @@ const getSubscriptionKindFilter = (kind) => {
 const getSessionsOverview = async (req, res) => {
     try {
         const query = `
-            SELECT 
-                s.IDSession AS sessionId,
-                s.Sessions AS sessionName,
+    SELECT 
+        s.IDSession AS sessionId,
+        s.Sessions AS sessionName,
 
-                COUNT(fc.ID) AS totalRecords,
+        COUNT(fc.ID) AS totalRecords,
 
-                COUNT(DISTINCT fc.Child_Id) AS uniqueChildrenCount,
+        COUNT(DISTINCT fc.Child_Id) AS uniqueChildrenCount,
 
-                COUNT(DISTINCT CASE WHEN ISNULL(fc.withdraw, 0) = 0 THEN fc.Child_Id END) AS activeChildrenCount,
-                COUNT(DISTINCT CASE WHEN ISNULL(fc.withdraw, 0) = 1 THEN fc.Child_Id END) AS withdrawnChildrenCount,
+        COUNT(DISTINCT CASE WHEN ISNULL(fc.withdraw, 0) = 0 THEN fc.Child_Id END) AS activeChildrenCount,
+        COUNT(DISTINCT CASE WHEN ISNULL(fc.withdraw, 0) = 1 THEN fc.Child_Id END) AS withdrawnChildrenCount,
 
-                COUNT(CASE WHEN fc.Kind_subscrip = N'اشتراك الدراسة السنوى' THEN 1 END) AS studyCount,
-                COUNT(CASE WHEN fc.Kind_subscrip = N'اشتراك الباص' THEN 1 END) AS busCount,
+        COUNT(CASE WHEN fc.Kind_subscrip = N'اشتراك الدراسة السنوى' THEN 1 END) AS studyCount,
+        COUNT(CASE WHEN fc.Kind_subscrip = N'اشتراك الباص' THEN 1 END) AS busCount,
 
-                ISNULL(SUM(CASE WHEN fc.Kind_subscrip = N'اشتراك الدراسة السنوى' THEN ISNULL(fc.amount_Sub, 0) ELSE 0 END), 0) AS studyTotal,
-                ISNULL(SUM(CASE WHEN fc.Kind_subscrip = N'اشتراك الباص' THEN ISNULL(fc.amount_Sub, 0) ELSE 0 END), 0) AS busTotal,
+        ISNULL(SUM(CASE WHEN fc.Kind_subscrip = N'اشتراك الدراسة السنوى' THEN ISNULL(fc.amount_Sub, 0) ELSE 0 END), 0) AS studyTotal,
+        ISNULL(SUM(CASE WHEN fc.Kind_subscrip = N'اشتراك الباص' THEN ISNULL(fc.amount_Sub, 0) ELSE 0 END), 0) AS busTotal,
 
-                MIN(fc.SubDate) AS firstSubDate,
-                MAX(fc.SubDate) AS lastSubDate
+        MIN(fc.SubDate) AS firstSubDate,
+        MAX(fc.SubDate) AS lastSubDate
 
-            FROM tbl_Sessions s
-            LEFT JOIN tbl_FinanceChild fc ON s.IDSession = fc.SessionID
-            GROUP BY s.IDSession, s.Sessions
-            ORDER BY s.IDSession DESC
-        `;
+    FROM tbl_Sessions s
+    INNER JOIN tbl_FinanceChild fc ON s.IDSession = fc.SessionID
+    GROUP BY s.IDSession, s.Sessions
+    ORDER BY s.IDSession DESC
+`;
 
         const result = await sql.query(query);
 
