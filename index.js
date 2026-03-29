@@ -70,6 +70,7 @@ app.use('/api/financial-settings', require('./routes/financialSettingsRoutes'));
 app.use('/api/expenses-kpi', require('./routes/expensesKPIRoutes'));
 app.use('/api/debts', require('./routes/debtRoutes'));
 app.use('/api/profit-loss', require('./routes/profitLossRoutes'));
+app.use('/api/child-finance-browser', require('./routes/childFinanceBrowserRoutes'));
 
 
 
