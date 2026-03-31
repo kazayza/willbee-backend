@@ -408,51 +408,410 @@ const getChildrenList = async (req, res) => {
 };
 
 // =============================================
-// تصدير التقرير إلى Excel
+// دوال التصدير (Excel و PDF)
 // =============================================
+
+// 1. تصدير تقرير الإيرادات إلى Excel
 const exportIncomesToExcel = async (req, res) => {
     try {
-        // هذه الدالة ستقوم بإنشاء ملف Excel
-        // يمكن استخدام مكتبة exceljs أو xlsx
-        // سنقوم بتنفيذها بشكل كامل عند الطلب
-        
-        res.status(200).json({
-            success: true,
-            message: 'سيتم تنفيذ تصدير Excel قريباً'
+        const {
+            fromDate,
+            toDate,
+            branchId,
+            incomeGroup,
+            incomeKindId
+        } = req.query;
+
+        // نفس استعلام getIncomesReport
+        let query = `
+            SELECT 
+                i.incomeDate,
+                d.incomeAmount,
+                d.ReceiptNumber,
+                d.date_Pay,
+                d.child_ID,
+                c.FullNameArabic AS childName,
+                ik.incomeKind AS incomeKindName,
+                ik.kindGroup AS incomeGroup,
+                b.branchName
+            FROM tbl_income i
+            INNER JOIN tbl_incomeDetalis d ON i.ID = d.IDincome
+            INNER JOIN tbl_incomeKind ik ON d.incomeKind = ik.ID
+            LEFT JOIN tbl_Child c ON d.child_ID = c.ID_Child
+            LEFT JOIN tbl_Branch b ON d.incomBranchtxt = b.IDbranch
+            WHERE 1=1
+            AND ik.ID NOT IN (36, 51)
+        `;
+
+        const request = new sql.Request();
+
+        if (fromDate) {
+            query += ` AND i.incomeDate >= @fromDate`;
+            request.input('fromDate', sql.DateTime, new Date(fromDate));
+        }
+        if (toDate) {
+            query += ` AND i.incomeDate <= @toDate`;
+            request.input('toDate', sql.DateTime, new Date(toDate));
+        }
+        if (branchId && branchId !== 'all') {
+            query += ` AND d.incomBranchtxt = @branchId`;
+            request.input('branchId', sql.SmallInt, parseInt(branchId));
+        }
+        if (incomeGroup && incomeGroup !== 'all') {
+            query += ` AND ik.kindGroup = @incomeGroup`;
+            request.input('incomeGroup', sql.NVarChar, incomeGroup);
+        }
+        if (incomeKindId && incomeKindId !== 'all') {
+            query += ` AND d.incomeKind = @incomeKindId`;
+            request.input('incomeKindId', sql.SmallInt, parseInt(incomeKindId));
+        }
+
+        query += ` ORDER BY i.incomeDate DESC`;
+
+        const result = await request.query(query);
+
+        // إنشاء ملف Excel بسيط
+        let excelData = [
+            ['التاريخ', 'نوع الإيراد', 'المجموعة', 'الطفل', 'الفرع', 'رقم الإيصال', 'المبلغ']
+        ];
+
+        result.recordset.forEach(row => {
+            excelData.push([
+                row.incomeDate ? new Date(row.incomeDate).toLocaleDateString('ar-EG') : '',
+                row.incomeKindName || '',
+                row.incomeGroup || '',
+                row.childName || '',
+                row.branchName || '',
+                row.ReceiptNumber || '',
+                row.incomeAmount || 0
+            ]);
         });
+
+        // تحويل إلى CSV مؤقتاً (بسيط وسريع)
+        const csvContent = excelData.map(row => row.join(',')).join('\n');
         
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename=incomes_report.csv');
+        res.send('\uFEFF' + csvContent); // إضافة BOM للعربية
+
     } catch (err) {
         console.error('Error in exportIncomesToExcel:', err);
-        res.status(500).json({ 
-            success: false, 
-            message: 'خطأ في تصدير Excel', 
-            error: err.message 
-        });
+        res.status(500).json({ success: false, error: err.message });
     }
 };
 
-// =============================================
-// تصدير التقرير إلى PDF
-// =============================================
+// 2. تصدير تقرير الإيرادات إلى PDF
 const exportIncomesToPDF = async (req, res) => {
     try {
-        // هذه الدالة ستقوم بإنشاء ملف PDF
-        // يمكن استخدام مكتبة pdfkit أو puppeteer
-        
-        res.status(200).json({
-            success: true,
-            message: 'سيتم تنفيذ تصدير PDF قريباً'
+        const {
+            fromDate,
+            toDate,
+            branchId,
+            incomeGroup,
+            incomeKindId
+        } = req.query;
+
+        // نفس الاستعلام أعلاه
+        let query = `
+            SELECT 
+                i.incomeDate,
+                d.incomeAmount,
+                d.ReceiptNumber,
+                d.child_ID,
+                c.FullNameArabic AS childName,
+                ik.incomeKind AS incomeKindName,
+                ik.kindGroup AS incomeGroup,
+                b.branchName
+            FROM tbl_income i
+            INNER JOIN tbl_incomeDetalis d ON i.ID = d.IDincome
+            INNER JOIN tbl_incomeKind ik ON d.incomeKind = ik.ID
+            LEFT JOIN tbl_Child c ON d.child_ID = c.ID_Child
+            LEFT JOIN tbl_Branch b ON d.incomBranchtxt = b.IDbranch
+            WHERE 1=1
+            AND ik.ID NOT IN (36, 51)
+        `;
+
+        const request = new sql.Request();
+
+        if (fromDate) {
+            query += ` AND i.incomeDate >= @fromDate`;
+            request.input('fromDate', sql.DateTime, new Date(fromDate));
+        }
+        if (toDate) {
+            query += ` AND i.incomeDate <= @toDate`;
+            request.input('toDate', sql.DateTime, new Date(toDate));
+        }
+        if (branchId && branchId !== 'all') {
+            query += ` AND d.incomBranchtxt = @branchId`;
+            request.input('branchId', sql.SmallInt, parseInt(branchId));
+        }
+        if (incomeGroup && incomeGroup !== 'all') {
+            query += ` AND ik.kindGroup = @incomeGroup`;
+            request.input('incomeGroup', sql.NVarChar, incomeGroup);
+        }
+        if (incomeKindId && incomeKindId !== 'all') {
+            query += ` AND d.incomeKind = @incomeKindId`;
+            request.input('incomeKindId', sql.SmallInt, parseInt(incomeKindId));
+        }
+
+        query += ` ORDER BY i.incomeDate DESC`;
+
+        const result = await request.query(query);
+
+        // حساب الإجمالي
+        const totalAmount = result.recordset.reduce((sum, row) => sum + (row.incomeAmount || 0), 0);
+
+        // إنشاء HTML بسيط للـ PDF
+        let htmlContent = `
+            <html dir="rtl">
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body { font-family: Arial, sans-serif; margin: 20px; }
+                    h1 { color: #4CAF50; text-align: center; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: right; }
+                    th { background-color: #4CAF50; color: white; }
+                    .total { font-size: 18px; font-weight: bold; margin-top: 20px; text-align: left; }
+                </style>
+            </head>
+            <body>
+                <h1>تقرير الإيرادات</h1>
+                <p>التاريخ: ${new Date().toLocaleDateString('ar-EG')}</p>
+                <table>
+                    <tr>
+                        <th>التاريخ</th>
+                        <th>نوع الإيراد</th>
+                        <th>المجموعة</th>
+                        <th>الطفل</th>
+                        <th>الفرع</th>
+                        <th>المبلغ</th>
+                    </tr>
+        `;
+
+        result.recordset.forEach(row => {
+            htmlContent += `
+                <tr>
+                    <td>${row.incomeDate ? new Date(row.incomeDate).toLocaleDateString('ar-EG') : ''}</td>
+                    <td>${row.incomeKindName || ''}</td>
+                    <td>${row.incomeGroup || ''}</td>
+                    <td>${row.childName || ''}</td>
+                    <td>${row.branchName || ''}</td>
+                    <td>${(row.incomeAmount || 0).toFixed(2)} ج.م</td>
+                </tr>
+            `;
         });
-        
+
+        htmlContent += `
+                </table>
+                <div class="total">إجمالي الإيرادات: ${totalAmount.toFixed(2)} ج.م</div>
+            </body>
+            </html>
+        `;
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename=incomes_report.html');
+        res.send(htmlContent);
+
     } catch (err) {
         console.error('Error in exportIncomesToPDF:', err);
-        res.status(500).json({ 
-            success: false, 
-            message: 'خطأ في تصدير PDF', 
-            error: err.message 
-        });
+        res.status(500).json({ success: false, error: err.message });
     }
 };
+
+// 3. تصدير إيرادات الطفل إلى Excel
+const exportChildIncomesToExcel = async (req, res) => {
+    try {
+        const { childId, fromDate, toDate } = req.query;
+
+        if (!childId) {
+            return res.status(400).json({ success: false, message: 'childId required' });
+        }
+
+        const request = new sql.Request();
+        request.input('childId', sql.Int, parseInt(childId));
+
+        let query = `
+            SELECT 
+                i.incomeDate,
+                d.incomeAmount,
+                d.ReceiptNumber,
+                d.date_Pay,
+                d.Byan,
+                d.Notes,
+                ik.incomeKind AS incomeKindName,
+                ik.kindGroup
+            FROM tbl_incomeDetalis d
+            INNER JOIN tbl_income i ON d.IDincome = i.ID
+            INNER JOIN tbl_incomeKind ik ON d.incomeKind = ik.ID
+            WHERE d.child_ID = @childId
+            AND ik.ID NOT IN (36, 51)
+        `;
+
+        if (fromDate) {
+            query += ` AND i.incomeDate >= @fromDate`;
+            request.input('fromDate', sql.DateTime, new Date(fromDate));
+        }
+        if (toDate) {
+            query += ` AND i.incomeDate <= @toDate`;
+            request.input('toDate', sql.DateTime, new Date(toDate));
+        }
+
+        query += ` ORDER BY i.incomeDate DESC`;
+
+        const result = await request.query(query);
+
+        const totalAmount = result.recordset.reduce((sum, row) => sum + (row.incomeAmount || 0), 0);
+
+        let csvData = [
+            ['التاريخ', 'نوع الإيراد', 'المجموعة', 'البيان', 'رقم الإيصال', 'المبلغ', 'ملاحظات']
+        ];
+
+        result.recordset.forEach(row => {
+            csvData.push([
+                row.incomeDate ? new Date(row.incomeDate).toLocaleDateString('ar-EG') : '',
+                row.incomeKindName || '',
+                row.kindGroup || '',
+                row.Byan || '',
+                row.ReceiptNumber || '',
+                row.incomeAmount || 0,
+                row.Notes || ''
+            ]);
+        });
+
+        csvData.push(['', '', '', '', 'الإجمالي', totalAmount.toFixed(2), '']);
+
+        const csvContent = csvData.map(row => row.join(',')).join('\n');
+        
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename=child_income_${childId}.csv`);
+        res.send('\uFEFF' + csvContent);
+
+    } catch (err) {
+        console.error('Error in exportChildIncomesToExcel:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+// 4. تصدير إيرادات الطفل إلى PDF
+const exportChildIncomesToPDF = async (req, res) => {
+    try {
+        const { childId, fromDate, toDate } = req.query;
+
+        if (!childId) {
+            return res.status(400).json({ success: false, message: 'childId required' });
+        }
+
+        // جلب اسم الطفل
+        const childRequest = new sql.Request();
+        childRequest.input('childId', sql.Int, parseInt(childId));
+        const childResult = await childRequest.query(`
+            SELECT FullNameArabic FROM tbl_Child WHERE ID_Child = @childId
+        `);
+        const childName = childResult.recordset[0]?.FullNameArabic || 'طفل';
+
+        const request = new sql.Request();
+        request.input('childId', sql.Int, parseInt(childId));
+
+        let query = `
+            SELECT 
+                i.incomeDate,
+                d.incomeAmount,
+                d.ReceiptNumber,
+                d.date_Pay,
+                d.Byan,
+                d.Notes,
+                ik.incomeKind AS incomeKindName,
+                ik.kindGroup
+            FROM tbl_incomeDetalis d
+            INNER JOIN tbl_income i ON d.IDincome = i.ID
+            INNER JOIN tbl_incomeKind ik ON d.incomeKind = ik.ID
+            WHERE d.child_ID = @childId
+            AND ik.ID NOT IN (36, 51)
+        `;
+
+        if (fromDate) {
+            query += ` AND i.incomeDate >= @fromDate`;
+            request.input('fromDate', sql.DateTime, new Date(fromDate));
+        }
+        if (toDate) {
+            query += ` AND i.incomeDate <= @toDate`;
+            request.input('toDate', sql.DateTime, new Date(toDate));
+        }
+
+        query += ` ORDER BY i.incomeDate DESC`;
+
+        const result = await request.query(query);
+
+        const totalAmount = result.recordset.reduce((sum, row) => sum + (row.incomeAmount || 0), 0);
+
+        let htmlContent = `
+            <html dir="rtl">
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body { font-family: Arial, sans-serif; margin: 20px; }
+                    h1 { color: #4CAF50; text-align: center; }
+                    h2 { text-align: center; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: right; }
+                    th { background-color: #4CAF50; color: white; }
+                    .total { font-size: 18px; font-weight: bold; margin-top: 20px; text-align: left; }
+                    .date-range { text-align: center; margin: 10px 0; color: #666; }
+                </style>
+            </head>
+            <body>
+                <h1>كشف حساب الطفل</h1>
+                <h2>${childName}</h2>
+        `;
+
+        if (fromDate || toDate) {
+            htmlContent += `<div class="date-range">الفترة: ${fromDate ? new Date(fromDate).toLocaleDateString('ar-EG') : 'من البداية'} - ${toDate ? new Date(toDate).toLocaleDateString('ar-EG') : 'حتى الآن'}</div>`;
+        }
+
+        htmlContent += `
+                <table>
+                    <tr>
+                        <th>التاريخ</th>
+                        <th>نوع الإيراد</th>
+                        <th>المجموعة</th>
+                        <th>البيان</th>
+                        <th>رقم الإيصال</th>
+                        <th>المبلغ</th>
+                    </tr>
+        `;
+
+        result.recordset.forEach(row => {
+            htmlContent += `
+                <tr>
+                    <td>${row.incomeDate ? new Date(row.incomeDate).toLocaleDateString('ar-EG') : ''}</td>
+                    <td>${row.incomeKindName || ''}</td>
+                    <td>${row.kindGroup || ''}</td>
+                    <td>${row.Byan || ''}</td>
+                    <td>${row.ReceiptNumber || ''}</td>
+                    <td>${(row.incomeAmount || 0).toFixed(2)} ج.م</td>
+                </tr>
+            `;
+        });
+
+        htmlContent += `
+                </table>
+                <div class="total">إجمالي المدفوعات: ${totalAmount.toFixed(2)} ج.م</div>
+            </body>
+            </html>
+        `;
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename=child_income_${childId}.html`);
+        res.send(htmlContent);
+
+    } catch (err) {
+        console.error('Error in exportChildIncomesToPDF:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+};
+
+
 
 module.exports = {
     getIncomesReport,
@@ -460,6 +819,8 @@ module.exports = {
     getIncomeKindsByGroup,
     getChildIncomes,
     getChildrenList,
-    exportIncomesToExcel,
-    exportIncomesToPDF
+    exportIncomesToExcel,        
+    exportIncomesToPDF,          
+    exportChildIncomesToExcel,   
+    exportChildIncomesToPDF      
 };

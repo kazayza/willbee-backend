@@ -25,5 +25,7 @@ router.get('/children-list', reportController.getChildrenList);
 // تصدير التقارير
 router.get('/export-excel', reportController.exportIncomesToExcel);
 router.get('/export-pdf', reportController.exportIncomesToPDF);
+router.get('/export-child-excel', reportController.exportChildIncomesToExcel);
+router.get('/export-child-pdf', reportController.exportChildIncomesToPDF);
 
 module.exports = router;
