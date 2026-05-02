@@ -81,7 +81,7 @@ const createLead = async (req, res) => {
         `);
 
         res.status(201).json({ 
-            message: 'تم تسجيل العميل المحتمل بنجاح 🎯',
+            message: 'تم تسجيل العميل المحتمل بنجاح ',
             leadId: result.recordset[0].LeadID
         });
 
@@ -239,7 +239,7 @@ const updateLead = async (req, res) => {
             return res.status(404).json({ message: 'العميل المحتمل غير موجود' });
         }
 
-        res.status(200).json({ message: 'تم تعديل بيانات العميل المحتمل بنجاح ✅' });
+        res.status(200).json({ message: 'تم تعديل بيانات العميل المحتمل بنجاح ' });
 
     } catch (err) {
         console.error('updateLead error:', err);
@@ -276,7 +276,7 @@ const updateLeadStatus = async (req, res) => {
             return res.status(404).json({ message: 'العميل المحتمل غير موجود' });
         }
 
-        res.status(200).json({ message: 'تم تحديث حالة العميل المحتمل ✅' });
+        res.status(200).json({ message: 'تم تحديث حالة العميل المحتمل ' });
     } catch (err) {
         console.error('updateLeadStatus error:', err);
         res.status(500).json({ error: err.message });
@@ -307,7 +307,7 @@ const deleteLead = async (req, res) => {
             return res.status(404).json({ message: 'العميل المحتمل غير موجود' });
         }
 
-        res.status(200).json({ message: 'تم حذف العميل المحتمل بنجاح ✅' });
+        res.status(200).json({ message: 'تم حذف العميل المحتمل بنجاح ' });
 
     } catch (err) {
         console.error('deleteLead error:', err);
@@ -381,7 +381,7 @@ const convertLeadToCustomer = async (req, res) => {
 
         await transaction.commit();
         res.status(200).json({ 
-            message: 'تم تحويل العميل بنجاح! 🎉', 
+            message: 'تم تحويل العميل بنجاح! ', 
             newCustomerId: newCustID 
         });
 

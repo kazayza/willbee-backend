@@ -32,7 +32,7 @@ const loginUser = async (req, res) => {
             `);
 
             res.status(200).json({
-                message: 'تم تسجيل الدخول بنجاح ✅',
+                message: 'تم تسجيل الدخول بنجاح ',
                 user: user,
                 permissions: permissionsResult.recordset
             });
@@ -113,7 +113,7 @@ const changePassword = async (req, res) => {
 
         res.status(200).json({ 
             success: true, 
-            message: 'تم تغيير كلمة المرور بنجاح ✅' 
+            message: 'تم تغيير كلمة المرور بنجاح ' 
         });
 
     } catch (err) {
@@ -152,7 +152,7 @@ const updateFcmToken = async (req, res) => {
 
         res.status(200).json({ 
             success: true, 
-            message: 'تم تحديث FCM Token بنجاح ✅' 
+            message: 'تم تحديث FCM Token بنجاح ' 
         });
 
     } catch (err) {
@@ -211,7 +211,7 @@ const sendNotificationToUser = async (req, res) => {
         
         res.status(200).json({ 
             success: true, 
-            message: 'تم إرسال الإشعار بنجاح ✅',
+            message: 'تم إرسال الإشعار بنجاح ',
             response: response
         });
 
@@ -270,7 +270,7 @@ const sendNotificationToAll = async (req, res) => {
         
         res.status(200).json({ 
             success: true, 
-            message: `تم إرسال الإشعار بنجاح ✅`,
+            message: `تم إرسال الإشعار بنجاح `,
             successCount: response.successCount,
             failureCount: response.failureCount
         });
@@ -284,6 +284,41 @@ const sendNotificationToAll = async (req, res) => {
         });
     }
 };
+// ✅ جلب الموظفين المسؤولين عن العملاء (PRUser & HRUser فقط)
+const getLeadsAssignees = async (req, res) => {
+    try {
+        const request = new sql.Request();
+
+        const result = await request.query(`
+            SELECT 
+                u.EmpID,
+                e.empName,
+                u.Role,
+                COUNT(l.LeadID) AS leadsCount
+            FROM tbl_users u
+            INNER JOIN tbl_empolyee e ON u.EmpID = e.ID
+            LEFT JOIN tbl_Leads l ON l.AssignedTo = u.EmpID 
+                AND l.IsDeleted = 0
+            WHERE u.Role IN ('PRUser', 'HRUser')
+              AND u.EmpID IS NOT NULL
+            GROUP BY u.EmpID, e.empName, u.Role
+            ORDER BY e.empName ASC
+        `);
+
+        res.status(200).json({
+            success: true,
+            data: result.recordset
+        });
+
+    } catch (err) {
+        console.error('getLeadsAssignees error:', err);
+        res.status(500).json({ 
+            success: false,
+            message: 'خطأ في جلب البيانات', 
+            error: err.message 
+        });
+    }
+};
 
 module.exports = {
     loginUser,
@@ -291,5 +326,6 @@ module.exports = {
     changePassword,
     updateFcmToken,
     sendNotificationToUser,
-    sendNotificationToAll
+    sendNotificationToAll,
+    getLeadsAssignees
 };

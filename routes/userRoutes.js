@@ -7,6 +7,7 @@ router.post('/login', userController.loginUser);
 
 // جلب صلاحيات مستخدم معين بالـ ID
 router.get('/:id/permissions', userController.getUserPermissions);
+router.get('/leads-assignees', userController.getLeadsAssignees);
 
 // 🔐 تغيير كلمة المرور
 router.post('/change-password', userController.changePassword);
