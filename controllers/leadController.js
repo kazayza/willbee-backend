@@ -573,7 +573,7 @@ const sendFollowUpReminders = async (req, res) => {
         }
 
         // جلب المتابعات مع FCM Token للموظف المسؤول
-        const result = await request.query(`
+                const result = await request.query(`
             SELECT 
                 L.LeadID,
                 L.FullName AS clientName,
@@ -585,15 +585,35 @@ const sendFollowUpReminders = async (req, res) => {
                 U.UserId,
                 U.FullName AS userName
             FROM tbl_Leads L
-            INNER JOIN tbl_empolyee E ON L.AssignedTo = E.ID
-            INNER JOIN tbl_users U ON U.EmpID = E.ID
+            LEFT JOIN tbl_empolyee E ON L.AssignedTo = E.ID
+            LEFT JOIN tbl_users U ON U.EmpID = E.ID
             WHERE L.IsDeleted = 0
               AND L.Status NOT IN ('Converted', 'Lost')
               AND L.NextFollowUp IS NOT NULL
               AND ${dateFilter}
-              AND U.fcm_token IS NOT NULL
-              AND U.fcm_token != ''
         `);
+
+        // طباعة النتيجة في السيرفر عشان نعرف إيه الناقص
+        console.log('--- Debug Reminders ---');
+        console.log(result.recordset);
+        console.log('-----------------------');
+
+        // فلترة النتائج اللي جاهزة للإرسال فعلاً
+        const validRecords = result.recordset.filter(
+            r => r.fcm_token && r.fcm_token.trim() !== ''
+        );
+
+        if (validRecords.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: 'توجد متابعات اليوم، لكن لا يوجد أي موظف مسؤول لديه توكن إشعارات (fcm_token) صالح!',
+                debug_total_leads_today: result.recordset.length,
+                debug_leads: result.recordset
+            });
+        }
+
+        // استكمال الإرسال للموظفين اللي عندهم توكن...
+        // (استبدل result.recordset بـ validRecords في الحلقة التكرارية for)
 
         if (result.recordset.length === 0) {
             return res.status(200).json({
