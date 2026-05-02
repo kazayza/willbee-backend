@@ -559,18 +559,23 @@ const sendFollowUpReminders = async (req, res) => {
     try {
         const request = new sql.Request();
 
-        let dateFilter = '';
         let notificationTitle = '';
-        let notificationBody = '';
+let notificationBody = '';
 
-        if (type === 'tomorrow') {
-            dateFilter = `CAST(L.NextFollowUp AS DATE) = CAST(DATEADD(DAY, 1, GETDATE()) AS DATE)`;
-            notificationTitle = '📅 تذكير متابعة بكرة';
-        } else {
-            // default = today
-            dateFilter = `CAST(L.NextFollowUp AS DATE) = CAST(GETDATE() AS DATE)`;
-            notificationTitle = '🔔 متابعة اليوم';
-        }
+const now = new Date();
+
+// ✅ نحسب التاريخ المحلي يدويًا
+const localToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+const targetDate = new Date(localToday);
+
+if (type === 'tomorrow') {
+    targetDate.setDate(targetDate.getDate() + 1);
+    notificationTitle = '📅 تذكير متابعة بكرة';
+} else {
+    notificationTitle = '🔔 متابعة اليوم';
+}
+
+request.input('targetDate', sql.Date, targetDate);
 
         // جلب المتابعات مع FCM Token للموظف المسؤول
                 const result = await request.query(`
