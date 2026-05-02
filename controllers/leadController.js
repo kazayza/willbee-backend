@@ -552,6 +552,115 @@ const checkPhoneDuplicate = async (req, res) => {
         res.status(500).json({ message: 'خطأ في التحقق', error: err.message });
     }
 };
+// ✅ إرسال إشعارات المتابعة (للـ Cron Job)
+const sendFollowUpReminders = async (req, res) => {
+    const { type } = req.query; // 'today' أو 'tomorrow'
+
+    try {
+        const request = new sql.Request();
+
+        let dateFilter = '';
+        let notificationTitle = '';
+        let notificationBody = '';
+
+        if (type === 'tomorrow') {
+            dateFilter = `CAST(L.NextFollowUp AS DATE) = CAST(DATEADD(DAY, 1, GETDATE()) AS DATE)`;
+            notificationTitle = '📅 تذكير متابعة بكرة';
+        } else {
+            // default = today
+            dateFilter = `CAST(L.NextFollowUp AS DATE) = CAST(GETDATE() AS DATE)`;
+            notificationTitle = '🔔 متابعة اليوم';
+        }
+
+        // جلب المتابعات مع FCM Token للموظف المسؤول
+        const result = await request.query(`
+            SELECT 
+                L.LeadID,
+                L.FullName AS clientName,
+                L.Phone,
+                L.NextFollowUp,
+                L.Status,
+                E.empName AS assignedName,
+                U.fcm_token,
+                U.UserId,
+                U.FullName AS userName
+            FROM tbl_Leads L
+            INNER JOIN tbl_empolyee E ON L.AssignedTo = E.ID
+            INNER JOIN tbl_users U ON U.EmpID = E.ID
+            WHERE L.IsDeleted = 0
+              AND L.Status NOT IN ('Converted', 'Lost')
+              AND L.NextFollowUp IS NOT NULL
+              AND ${dateFilter}
+              AND U.fcm_token IS NOT NULL
+              AND U.fcm_token != ''
+        `);
+
+        if (result.recordset.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: 'لا توجد متابعات',
+                sent: 0
+            });
+        }
+
+        // إرسال إشعار لكل موظف
+        const admin = require('firebase-admin');
+        let sentCount = 0;
+        let failedCount = 0;
+        const errors = [];
+
+        for (const lead of result.recordset) {
+            try {
+                if (type === 'tomorrow') {
+                    notificationBody = `عندك متابعة بكرة مع ${lead.clientName} (${lead.Phone})`;
+                } else {
+                    notificationBody = `عندك متابعة اليوم مع ${lead.clientName} (${lead.Phone})`;
+                }
+
+                await admin.messaging().send({
+                    notification: {
+                        title: notificationTitle,
+                        body: notificationBody,
+                    },
+                    data: {
+                        type: 'followup_reminder',
+                        leadId: lead.LeadID.toString(),
+                        clientName: lead.clientName,
+                        phone: lead.Phone || '',
+                        reminderType: type || 'today',
+                    },
+                    token: lead.fcm_token,
+                });
+
+                sentCount++;
+            } catch (err) {
+                failedCount++;
+                errors.push({
+                    userId: lead.UserId,
+                    userName: lead.userName,
+                    error: err.message,
+                });
+                console.error(`❌ فشل إرسال إشعار لـ ${lead.userName}:`, err.message);
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: `تم إرسال ${sentCount} إشعار`,
+            sent: sentCount,
+            failed: failedCount,
+            errors: errors.length > 0 ? errors : undefined,
+        });
+
+    } catch (err) {
+        console.error('sendFollowUpReminders error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في إرسال الإشعارات',
+            error: err.message
+        });
+    }
+};
 
 module.exports = {
     createLead,
@@ -564,4 +673,5 @@ module.exports = {
     getLeadsNeedFollowUp,
     getTodayFollowUps,
     checkPhoneDuplicate,
+    sendFollowUpReminders,
 };

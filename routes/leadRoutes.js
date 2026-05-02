@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const leadController = require('../controllers/leadController');
 
+// ✅ Cron Job Routes (لازم قبل /:id)
+router.post('/send-reminders', leadController.sendFollowUpReminders);
+
 // جلب الـ Leads اللي محتاجين متابعة
 router.get('/need-followup', leadController.getLeadsNeedFollowUp);
 
