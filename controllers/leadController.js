@@ -1,4 +1,5 @@
 const { sql } = require('../config/db');
+const { createAndPushNotification } = require('./notificationController');
 
 // 1. تسجيل عميل محتمل جديد (Lead)
 const createLead = async (req, res) => {
@@ -642,32 +643,54 @@ const sendFollowUpReminders = async (req, res) => {
         let failedCount = 0;
 
         for (const lead of validRecords) {
-            try {
-                const notificationBody = type === 'tomorrow'
-                    ? `عندك متابعة بكرة مع ${lead.clientName} (${lead.Phone})`
-                    : `عندك متابعة اليوم مع ${lead.clientName} (${lead.Phone})`;
+    try {
+        const notificationBody = type === 'tomorrow'
+            ? `عندك متابعة بكرة مع ${lead.clientName} (${lead.Phone})`
+            : `عندك متابعة اليوم مع ${lead.clientName} (${lead.Phone})`;
 
-                await admin.messaging().send({
-                    notification: {
-                        title: notificationTitle,
-                        body: notificationBody,
-                    },
-                    data: {
-                        type: 'followup_reminder',
-                        leadId: lead.LeadID.toString(),
-                        clientName: lead.clientName,
-                        phone: lead.Phone || '',
-                        reminderType: type || 'today',
-                    },
-                    token: lead.fcm_token,
-                });
+        // ✅ التحقق من عدم التكرار
+        const checkRequest = new sql.Request();
+        checkRequest.input('uid', sql.Int, lead.UserId);
+        checkRequest.input('relId', sql.Int, lead.LeadID);
+        checkRequest.input('notifType', sql.NVarChar, 'FollowUpReminder');
 
-                sentCount++;
-            } catch (err) {
-                failedCount++;
-                console.error(`❌ فشل إرسال إشعار لـ ${lead.userName}:`, err.message);
-            }
+        const cairoNow = new Date(new Date().getTime() + 3 * 60 * 60 * 1000);
+        const todayStr = `${cairoNow.getUTCFullYear()}-${String(cairoNow.getUTCMonth() + 1).padStart(2, '0')}-${String(cairoNow.getUTCDate()).padStart(2, '0')}`;
+        checkRequest.input('today', sql.VarChar, todayStr);
+
+        const existingNotif = await checkRequest.query(`
+            SELECT NotificationID 
+            FROM tbl_Notifications 
+            WHERE UserID = @uid 
+              AND RelatedID = @relId 
+              AND NotificationType = @notifType
+              AND CONVERT(VARCHAR, CreatedAt, 23) = @today
+              AND IsDeleted = 0
+        `);
+
+        if (existingNotif.recordset.length > 0) {
+            console.log(`⚠️ إشعار مكرر - تم تخطيه للـ Lead ${lead.LeadID}`);
+            continue;
         }
+
+        // ✅ إرسال الإشعار وحفظه في tbl_Notifications
+        await createAndPushNotification(
+            lead.UserId,
+            notificationTitle,
+            notificationBody,
+            'FollowUpReminder',
+            'Lead',
+            lead.LeadID
+        );
+
+        sentCount++;
+
+    } catch (err) {
+        failedCount++;
+        console.error(`❌ فشل إرسال إشعار لـ ${lead.userName}:`, err.message);
+    }
+}
+        
 
         return res.status(200).json({
             success: true,
