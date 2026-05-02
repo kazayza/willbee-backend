@@ -21,6 +21,7 @@ router.post('/', empController.createEmployee);
 // GET /api/employees/:id/salary
 router.get('/:id/salary', empController.getEmployeeSalaryHistory);
 router.post('/:id/salary', empController.addEmployeeSalary);
+router.delete('/:id/salary/:salaryId', empController.deleteEmployeeSalary);
 
 // جلب موظف واحد بالـ ID
 // GET /api/employees/:id

@@ -299,6 +299,34 @@ const addEmployeeSalary = async (req, res) => {
         res.status(500).json({ message: 'فشل إضافة الراتب', error: err.message });
     }
 };
+// ✅ حذف سجل راتب
+const deleteEmployeeSalary = async (req, res) => {
+    const { id, salaryId } = req.params;
+
+    try {
+        const request = new sql.Request();
+        request.input('salaryId', sql.Int, parseInt(salaryId));
+        request.input('empId', sql.Int, parseInt(id));
+
+        const result = await request.query(`
+            DELETE FROM tbl_baseSalaryEmpolyee 
+            WHERE ID = @salaryId AND ID_emp = @empId
+        `);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ message: 'السجل غير موجود' });
+        }
+
+        res.status(200).json({ 
+            success: true,
+            message: 'تم حذف السجل بنجاح ✅' 
+        });
+
+    } catch (err) {
+        console.error('Error deleting salary:', err);
+        res.status(500).json({ message: 'فشل الحذف', error: err.message });
+    }
+};
 
 module.exports = {
     getEmployees,
@@ -307,6 +335,7 @@ module.exports = {
     updateEmployee,
     getEmployeeSalaryHistory,
     addEmployeeSalary,
+    deleteEmployeeSalary,
     getEmployeesWithUsers,
     getEmployeeById
 };
