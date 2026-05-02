@@ -269,12 +269,44 @@ const getEmployeesWithUsers = async (req, res) => {
   }
 };
 
+// ✅ إضافة زيادة راتب لموظف
+const addEmployeeSalary = async (req, res) => {
+    const { id } = req.params;
+    const { baseSalary, increseDate } = req.body;
+
+    try {
+        if (!baseSalary || baseSalary <= 0) {
+            return res.status(400).json({ message: 'يجب إدخال مبلغ صحيح' });
+        }
+
+        const request = new sql.Request();
+        request.input('empId', sql.Int, parseInt(id));
+        request.input('salary', sql.Decimal(18, 2), baseSalary);
+        request.input('date', sql.DateTime, increseDate || new Date());
+
+        await request.query(`
+            INSERT INTO tbl_baseSalaryEmpolyee (ID_emp, BaseSalary, increseDate)
+            VALUES (@empId, @salary, @date)
+        `);
+
+        res.status(201).json({ 
+            success: true,
+            message: 'تم إضافة الراتب بنجاح ✅' 
+        });
+
+    } catch (err) {
+        console.error('Error adding salary:', err);
+        res.status(500).json({ message: 'فشل إضافة الراتب', error: err.message });
+    }
+};
+
 module.exports = {
     getEmployees,
     getEmployeeJobs,
     createEmployee,
     updateEmployee,
     getEmployeeSalaryHistory,
+    addEmployeeSalary,
     getEmployeesWithUsers,
     getEmployeeById
 };

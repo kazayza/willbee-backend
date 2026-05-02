@@ -20,6 +20,7 @@ router.post('/', empController.createEmployee);
 // سجل الرواتب لموظف معين
 // GET /api/employees/:id/salary
 router.get('/:id/salary', empController.getEmployeeSalaryHistory);
+router.post('/:id/salary', empController.addEmployeeSalary);
 
 // جلب موظف واحد بالـ ID
 // GET /api/employees/:id
