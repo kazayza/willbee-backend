@@ -227,10 +227,56 @@ const getAttendanceReport = async (req, res) => {
     }
 };
 
+// ✅ 6. جلب تواريخ غياب موظف معين
+const getEmpAbsenceDates = async (req, res) => {
+    const { empId, month, year, fromDate, toDate } = req.query;
+
+    try {
+        const request = new sql.Request();
+        request.input('empId', sql.Int, parseInt(empId));
+
+        let dateFilter = '';
+
+        if (fromDate && toDate) {
+            request.input('fromDate', sql.Date, fromDate);
+            request.input('toDate', sql.Date, toDate);
+            dateFilter = `AND CAST(m.Databsense AS DATE) BETWEEN @fromDate AND @toDate`;
+        } else if (month && year) {
+            request.input('month', sql.Int, parseInt(month));
+            request.input('year', sql.Int, parseInt(year));
+            dateFilter = `AND MONTH(m.Databsense) = @month AND YEAR(m.Databsense) = @year`;
+        }
+
+        const query = `
+            SELECT 
+                m.Databsense AS absenceDate,
+                d.Notes
+            FROM tbl_absenseEmp m
+            INNER JOIN tbl_absenseEmpDetalies d ON m.ID = d.ID
+            WHERE d.Emp_code = @empId
+              ${dateFilter}
+            ORDER BY m.Databsense
+        `;
+
+        const result = await request.query(query);
+        res.status(200).json({
+            success: true,
+            empId: parseInt(empId),
+            totalAbsence: result.recordset.length,
+            data: result.recordset
+        });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error fetching absence dates', error: err.message });
+    }
+};
+
 module.exports = {
     saveEmpAttendance,
     getEmpAttendanceByDate,
     deleteEmpAttendance,
     getAttendanceHistory,
-    getAttendanceReport 
+    getAttendanceReport,
+    getEmpAbsenceDates
 };

@@ -15,5 +15,6 @@ router.get('/history', controller.getAttendanceHistory);
 router.delete('/', controller.deleteEmpAttendance);
 
 router.get('/report', controller.getAttendanceReport);
+router.get('/emp-dates', controller.getEmpAbsenceDates);
 
 module.exports = router;
