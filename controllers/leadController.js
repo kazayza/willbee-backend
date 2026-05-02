@@ -554,31 +554,35 @@ const checkPhoneDuplicate = async (req, res) => {
 };
 // ✅ إرسال إشعارات المتابعة (للـ Cron Job)
 const sendFollowUpReminders = async (req, res) => {
-    const { type } = req.query; // 'today' أو 'tomorrow'
+    const { type } = req.query;
 
     try {
         const request = new sql.Request();
 
-        let notificationTitle = '';
-let notificationBody = '';
+        // ✅ نحسب التاريخ بتوقيت مصر (UTC+3)
+        const now = new Date();
+        const cairoOffset = 3 * 60; // 3 ساعات بالدقائق
+        const cairoTime = new Date(now.getTime() + cairoOffset * 60 * 1000);
+        
+        // تاريخ اليوم أو بكرة
+        const targetDate = new Date(cairoTime);
+        if (type === 'tomorrow') {
+            targetDate.setDate(targetDate.getDate() + 1);
+        }
+        
+        // تحويل التاريخ لـ String بصيغة YYYY-MM-DD
+        const year = targetDate.getUTCFullYear();
+        const month = String(targetDate.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(targetDate.getUTCDate()).padStart(2, '0');
+        const dateString = `${year}-${month}-${day}`;
 
-const now = new Date();
+        const notificationTitle = type === 'tomorrow' 
+            ? '📅 تذكير متابعة بكرة' 
+            : '🔔 متابعة اليوم';
 
-// ✅ نحسب التاريخ المحلي يدويًا
-const localToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-const targetDate = new Date(localToday);
+        request.input('targetDate', sql.VarChar, dateString);
 
-if (type === 'tomorrow') {
-    targetDate.setDate(targetDate.getDate() + 1);
-    notificationTitle = '📅 تذكير متابعة بكرة';
-} else {
-    notificationTitle = '🔔 متابعة اليوم';
-}
-
-request.input('targetDate', sql.Date, targetDate);
-
-        // جلب المتابعات مع FCM Token للموظف المسؤول
-                const result = await request.query(`
+        const result = await request.query(`
             SELECT 
                 L.LeadID,
                 L.FullName AS clientName,
@@ -595,52 +599,53 @@ request.input('targetDate', sql.Date, targetDate);
             WHERE L.IsDeleted = 0
               AND L.Status NOT IN ('Converted', 'Lost')
               AND L.NextFollowUp IS NOT NULL
-              AND ${dateFilter}
+              AND CONVERT(VARCHAR, L.NextFollowUp, 23) = @targetDate
         `);
 
-        // طباعة النتيجة في السيرفر عشان نعرف إيه الناقص
-        console.log('--- Debug Reminders ---');
-        console.log(result.recordset);
-        console.log('-----------------------');
+        console.log('Target Date:', dateString);
+        console.log('Total found:', result.recordset.length);
+        console.log('Records:', JSON.stringify(result.recordset));
 
-        // فلترة النتائج اللي جاهزة للإرسال فعلاً
-        const validRecords = result.recordset.filter(
-            r => r.fcm_token && r.fcm_token.trim() !== ''
-        );
-
-        if (validRecords.length === 0) {
-            return res.status(200).json({
-                success: true,
-                message: 'توجد متابعات اليوم، لكن لا يوجد أي موظف مسؤول لديه توكن إشعارات (fcm_token) صالح!',
-                debug_total_leads_today: result.recordset.length,
-                debug_leads: result.recordset
-            });
-        }
-
-        // استكمال الإرسال للموظفين اللي عندهم توكن...
-        // (استبدل result.recordset بـ validRecords في الحلقة التكرارية for)
-
+        // لو مفيش نتائج خالص
         if (result.recordset.length === 0) {
             return res.status(200).json({
                 success: true,
-                message: 'لا توجد متابعات',
+                message: 'لا توجد متابعات في هذا التاريخ',
+                targetDate: dateString,
                 sent: 0
             });
         }
 
-        // إرسال إشعار لكل موظف
+        // فلتر اللي عندهم توكن
+        const validRecords = result.recordset.filter(
+            r => r.fcm_token && r.fcm_token.trim() !== ''
+        );
+
+        // لو مفيش توكن
+        if (validRecords.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: 'توجد متابعات لكن لا يوجد fcm_token صالح',
+                targetDate: dateString,
+                total_leads: result.recordset.length,
+                leads: result.recordset.map(r => ({
+                    name: r.clientName,
+                    assignedTo: r.assignedName,
+                    hasToken: !!r.fcm_token
+                }))
+            });
+        }
+
+        // إرسال الإشعارات
         const admin = require('firebase-admin');
         let sentCount = 0;
         let failedCount = 0;
-        const errors = [];
 
-        for (const lead of result.recordset) {
+        for (const lead of validRecords) {
             try {
-                if (type === 'tomorrow') {
-                    notificationBody = `عندك متابعة بكرة مع ${lead.clientName} (${lead.Phone})`;
-                } else {
-                    notificationBody = `عندك متابعة اليوم مع ${lead.clientName} (${lead.Phone})`;
-                }
+                const notificationBody = type === 'tomorrow'
+                    ? `عندك متابعة بكرة مع ${lead.clientName} (${lead.Phone})`
+                    : `عندك متابعة اليوم مع ${lead.clientName} (${lead.Phone})`;
 
                 await admin.messaging().send({
                     notification: {
@@ -660,11 +665,6 @@ request.input('targetDate', sql.Date, targetDate);
                 sentCount++;
             } catch (err) {
                 failedCount++;
-                errors.push({
-                    userId: lead.UserId,
-                    userName: lead.userName,
-                    error: err.message,
-                });
                 console.error(`❌ فشل إرسال إشعار لـ ${lead.userName}:`, err.message);
             }
         }
@@ -672,9 +672,9 @@ request.input('targetDate', sql.Date, targetDate);
         return res.status(200).json({
             success: true,
             message: `تم إرسال ${sentCount} إشعار`,
+            targetDate: dateString,
             sent: sentCount,
-            failed: failedCount,
-            errors: errors.length > 0 ? errors : undefined,
+            failed: failedCount
         });
 
     } catch (err) {
