@@ -485,6 +485,73 @@ const getTodayFollowUps = async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 };
+// ✅ التحقق من تكرار رقم الموبايل
+const checkPhoneDuplicate = async (req, res) => {
+    const { phone } = req.query;
+
+    if (!phone) {
+        return res.status(400).json({ message: 'رقم الموبايل مطلوب' });
+    }
+
+    // تنظيف الرقم
+    const cleanPhone = phone.replace(/[\s\-\+]/g, '');
+
+    try {
+        const request = new sql.Request();
+        request.input('phone', sql.NVarChar, cleanPhone);
+
+        const result = await request.query(`
+            SELECT 
+                'lead' AS sourceType,
+                LeadID AS id,
+                FullName,
+                Phone,
+                Status,
+                CreatedAt
+            FROM tbl_Leads
+            WHERE REPLACE(REPLACE(REPLACE(Phone, ' ', ''), '-', ''), '+', '') = @phone
+              AND IsDeleted = 0
+
+            UNION ALL
+
+            SELECT 
+                'customer' AS sourceType,
+                CustomerID AS id,
+                FullName,
+                Phone,
+                Status,
+                CreatedAt
+            FROM tbl_Customers
+            WHERE REPLACE(REPLACE(REPLACE(Phone, ' ', ''), '-', ''), '+', '') = @phone
+              AND Status != 'Deleted'
+        `);
+
+        if (result.recordset.length > 0) {
+            const record = result.recordset[0];
+            const isLead = record.sourceType === 'lead';
+
+            return res.status(200).json({
+                exists: true,
+                sourceType: record.sourceType,
+                message: isLead
+                    ? `هذا الرقم مسجل بالفعل كعميل محتمل (${record.FullName})`
+                    : `هذا الرقم مسجل بالفعل كعميل (${record.FullName})`,
+                data: {
+                    id: record.id,
+                    fullName: record.FullName,
+                    status: record.Status,
+                    createdAt: record.CreatedAt,
+                }
+            });
+        }
+
+        return res.status(200).json({ exists: false });
+
+    } catch (err) {
+        console.error('checkPhoneDuplicate error:', err);
+        res.status(500).json({ message: 'خطأ في التحقق', error: err.message });
+    }
+};
 
 module.exports = {
     createLead,
@@ -495,5 +562,6 @@ module.exports = {
     deleteLead,
     convertLeadToCustomer,
     getLeadsNeedFollowUp,
-    getTodayFollowUps
+    getTodayFollowUps,
+    checkPhoneDuplicate,
 };

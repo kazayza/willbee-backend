@@ -7,6 +7,7 @@ router.get('/need-followup', leadController.getLeadsNeedFollowUp);
 
 // جلب متابعات اليوم
 router.get('/today-followups', leadController.getTodayFollowUps);
+router.get('/check-phone', leadController.checkPhoneDuplicate);
 
 // عرض كل الـ Leads
 router.get('/', leadController.getLeads);
