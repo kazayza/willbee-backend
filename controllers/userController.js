@@ -299,7 +299,7 @@ const getLeadsAssignees = async (req, res) => {
             INNER JOIN tbl_empolyee e ON u.EmpID = e.ID
             LEFT JOIN tbl_Leads l ON l.AssignedTo = u.EmpID 
                 AND l.IsDeleted = 0
-            WHERE u.Role IN ('PRUser', 'HRUser')
+            WHERE u.Role IN ('PRUser')
               AND u.EmpID IS NOT NULL
             GROUP BY u.EmpID, e.empName, u.Role
             ORDER BY e.empName ASC
