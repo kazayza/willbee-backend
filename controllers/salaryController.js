@@ -7,7 +7,8 @@ const { sql } = require('../config/db');
 //    - لو مفيش حاجة → يحسب ويحفظ مسودة جديدة
 // =========================================================================
 const fetchPayroll = async (req, res) => {
-    const { month, year, branchId, workerTypeId } = req.query;
+    const { month, year, branchId, workerTypeId, empId, user } = req.body;
+    const currentUser = user || 'System';
 
     if (!month || !year) {
         return res.status(400).json({ message: 'الشهر والسنة مطلوبين' });
@@ -69,8 +70,8 @@ const fetchPayroll = async (req, res) => {
                 archReq.input('workerTypeId', sql.Int, parseInt(workerTypeId));
                 archQuery += ' AND e.EmpType = @workerTypeId';
             }
-            if (req.query.empId) {
-    archReq.input('empId', sql.Int, parseInt(req.query.empId));
+            if (empId) {
+    archReq.input('empId', sql.Int, parseInt(empId));
     archQuery += ' AND e.ID = @empId';
 }
 
@@ -169,8 +170,8 @@ const fetchPayroll = async (req, res) => {
             calcReq.input('workerTypeId', sql.Int, parseInt(workerTypeId));
             calcQuery += ' AND e.EmpType = @workerTypeId';
         }
-        if (req.query.empId) {
-    calcReq.input('empId', sql.Int, parseInt(req.query.empId));
+        if (empId) {
+    calcReq.input('empId', sql.Int, parseInt(empId));
     calcQuery += ' AND e.ID = @empId';
 }
 
@@ -230,27 +231,29 @@ const fetchPayroll = async (req, res) => {
                 await delReq.query('DELETE FROM tbl_ExpensesDetalis WHERE IDExpense = @expID');
 
                 const updReq = new sql.Request(transaction);
-                updReq.input('expID', sql.Int, expenseID);
-                updReq.input('date', sql.DateTime, lastDayOfMonth);
-                updReq.input('byan', sql.NVarChar, headerByan);
-                await updReq.query(`
-                    UPDATE tbl_expenses 
-                    SET expenseDate = @date, expenseByan = @byan, 
-                        useredit = 'AutoSave', editTime = GETDATE()
-                    WHERE ID = @expID
-                `);
+updReq.input('expID', sql.Int, expenseID);
+updReq.input('date', sql.DateTime, lastDayOfMonth);
+updReq.input('byan', sql.NVarChar, headerByan);
+updReq.input('currentUser', sql.NVarChar, currentUser);
+await updReq.query(`
+    UPDATE tbl_expenses 
+    SET expenseDate = @date, expenseByan = @byan, 
+        useredit = @currentUser, editTime = GETDATE()
+    WHERE ID = @expID
+`);
             } else {
                 // ➕ إنشاء مسودة جديدة
                 const insReq = new sql.Request(transaction);
-                insReq.input('date', sql.DateTime, lastDayOfMonth);
-                insReq.input('byan', sql.NVarChar, headerByan);
+insReq.input('date', sql.DateTime, lastDayOfMonth);
+insReq.input('byan', sql.NVarChar, headerByan);
+insReq.input('currentUser', sql.NVarChar, currentUser);
 
-                const headResult = await insReq.query(`
-                    INSERT INTO tbl_expenses 
-                    (expenseDate, Kind, userAdd, Addtime, salaryDone, expenseByan)
-                    OUTPUT inserted.ID
-                    VALUES (@date, N'مرتبات', 'AutoSave', GETDATE(), 0, @byan)
-                `);
+const headResult = await insReq.query(`
+    INSERT INTO tbl_expenses 
+    (expenseDate, Kind, userAdd, Addtime, salaryDone, expenseByan)
+    OUTPUT inserted.ID
+    VALUES (@date, N'مرتبات', @currentUser, GETDATE(), 0, @byan)
+`);
                 expenseID = headResult.recordset[0].ID;
             }
 
