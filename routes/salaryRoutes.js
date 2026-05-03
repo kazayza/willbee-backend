@@ -6,6 +6,7 @@ const controller = require('../controllers/salaryController');
 // GET /api/salaries/fetch?month=1&year=2025&branchId=1&workerTypeId=2
 router.post('/fetch', controller.fetchPayroll);
 router.get('/range', controller.fetchPayrollRange);
+router.get('/query', controller.queryPayroll);
 
 // ✅ 2. حفظ التعديلات اليدوية (مسودة)
 // PUT /api/salaries/draft

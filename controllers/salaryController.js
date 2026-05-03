@@ -562,5 +562,106 @@ const fetchPayrollRange = async (req, res) => {
         res.status(500).json({ message: 'خطأ في جلب بيانات الرواتب', error: err.message });
     }
 };
+// ✅ استعلام رواتب من الداتابيز فقط (بدون حساب)
+const queryPayroll = async (req, res) => {
+    
+    const { fromMonth, fromYear, toMonth, toYear, branchId, empId } = req.query;
 
-module.exports = { fetchPayroll, updateDraft, approvePayroll, fetchPayrollRange };
+    if (!fromMonth || !fromYear || !toMonth || !toYear) {
+        return res.status(400).json({ 
+            message: 'الفترة مطلوبة' 
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('fromMonth', sql.Int, parseInt(fromMonth));
+        request.input('fromYear', sql.Int, parseInt(fromYear));
+        request.input('toMonth', sql.Int, parseInt(toMonth));
+        request.input('toYear', sql.Int, parseInt(toYear));
+
+        let query = `
+            SELECT 
+                d.empolyee_ID AS EmpID,
+                e.empName,
+                e.job,
+                e.BranchID,
+                b.branchName,
+                MONTH(ex.expenseDate) AS salaryMonth,
+                YEAR(ex.expenseDate) AS salaryYear,
+                d.salary AS BaseSalary,
+                d.extraTime,
+                d.badal,
+                d.Reward,
+                d.penalty,
+                d.busSub,
+                d.qstSolfa,
+                d.Solfa,
+                d.[absence's _Day] AS AbsenceDays,
+                d.absence AS absenceAmount,
+                d.expenseAmount AS netForDB,
+                d.Notes,
+                ex.salaryDone,
+                ex.expenseDate,
+                ex.userAdd,
+                ex.useredit
+            FROM tbl_ExpensesDetalis d
+            INNER JOIN tbl_expenses ex ON d.IDExpense = ex.ID
+            INNER JOIN tbl_empolyee e ON d.empolyee_ID = e.ID
+            LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
+            WHERE ex.Kind = N'مرتبات'
+              AND (
+                  (YEAR(ex.expenseDate) * 100 + MONTH(ex.expenseDate)) 
+                  BETWEEN 
+                  (@fromYear * 100 + @fromMonth) 
+                  AND 
+                  (@toYear * 100 + @toMonth)
+              )
+        `;
+
+        if (branchId) {
+            request.input('branchId', sql.Int, parseInt(branchId));
+            query += ' AND e.BranchID = @branchId';
+        }
+
+        if (empId) {
+            request.input('empId', sql.Int, parseInt(empId));
+            query += ' AND d.empolyee_ID = @empId';
+        }
+
+        query += ' ORDER BY ex.expenseDate DESC, e.empName ASC';
+
+        const result = await request.query(query);
+
+        const data = result.recordset.map(emp => {
+            const totalAdd = (emp.BaseSalary || 0) + (emp.extraTime || 0) 
+                           + (emp.badal || 0) + (emp.Reward || 0);
+            const totalSub = (emp.penalty || 0) + (emp.busSub || 0) 
+                           + (emp.absenceAmount || 0) + (emp.qstSolfa || 0);
+            const netForEmployee = parseFloat((totalAdd - totalSub).toFixed(2));
+
+            return { ...emp, netForEmployee };
+        });
+
+        res.status(200).json({
+            success: true,
+            count: data.length,
+            data: data
+        });
+
+    } catch (err) {
+        console.error('queryPayroll error:', err);
+        res.status(500).json({ 
+            message: 'خطأ في الاستعلام', 
+            error: err.message 
+        });
+    }
+};
+
+module.exports = { 
+    fetchPayroll, 
+    updateDraft, 
+    approvePayroll, 
+    fetchPayrollRange,
+    queryPayroll,
+};
