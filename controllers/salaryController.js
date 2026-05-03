@@ -69,6 +69,10 @@ const fetchPayroll = async (req, res) => {
                 archReq.input('workerTypeId', sql.Int, parseInt(workerTypeId));
                 archQuery += ' AND e.EmpType = @workerTypeId';
             }
+            if (req.query.empId) {
+    archReq.input('empId', sql.Int, parseInt(req.query.empId));
+    archQuery += ' AND e.ID = @empId';
+}
 
             archQuery += ' ORDER BY e.empName ASC';
             const archResult = await archReq.query(archQuery);
@@ -165,6 +169,10 @@ const fetchPayroll = async (req, res) => {
             calcReq.input('workerTypeId', sql.Int, parseInt(workerTypeId));
             calcQuery += ' AND e.EmpType = @workerTypeId';
         }
+        if (req.query.empId) {
+    calcReq.input('empId', sql.Int, parseInt(req.query.empId));
+    calcQuery += ' AND e.ID = @empId';
+}
 
         calcQuery += ' ORDER BY e.empName ASC';
         const calcResult = await calcReq.query(calcQuery);
