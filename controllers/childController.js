@@ -315,6 +315,128 @@ const getTodayBirthdays = async (req, res) => {
         });
     }
 };
+// ✅ جلب أعياد ميلاد الأسبوع القادم
+const getUpcomingBirthdays = async (req, res) => {
+    try {
+        const request = new sql.Request();
+
+        const result = await request.query(`
+            SELECT 
+                c.ID_Child,
+                c.FullNameArabic AS childName,
+                c.birthDate,
+                FLOOR(DATEDIFF(DAY, c.birthDate, GETDATE()) / 365.25) AS age,
+                c.FatherMobile1,
+                c.MotherMobile1,
+                b.branchName,
+                v.ClassName,
+                CASE 
+                    WHEN MONTH(c.birthDate) = MONTH(GETDATE()) 
+                         AND DAY(c.birthDate) = DAY(GETDATE())
+                    THEN 0
+                    WHEN MONTH(c.birthDate) > MONTH(GETDATE()) 
+                         OR (MONTH(c.birthDate) = MONTH(GETDATE()) AND DAY(c.birthDate) > DAY(GETDATE()))
+                    THEN DATEDIFF(DAY, GETDATE(), 
+                         DATEFROMPARTS(YEAR(GETDATE()), MONTH(c.birthDate), DAY(c.birthDate)))
+                    ELSE DATEDIFF(DAY, GETDATE(), 
+                         DATEFROMPARTS(YEAR(GETDATE()) + 1, MONTH(c.birthDate), DAY(c.birthDate)))
+                END AS daysUntilBirthday
+            FROM tbl_Child c
+            LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+            LEFT JOIN vw_ChildrenCurrentClass v ON c.ID_Child = v.ID_Child
+            WHERE 
+                c.Status = 1
+                AND (
+                    (MONTH(c.birthDate) = MONTH(GETDATE()) AND DAY(c.birthDate) >= DAY(GETDATE()))
+                    OR
+                    (MONTH(c.birthDate) = MONTH(DATEADD(DAY, 7, GETDATE())) 
+                     AND DAY(c.birthDate) <= DAY(DATEADD(DAY, 7, GETDATE())))
+                )
+            ORDER BY 
+                CASE 
+                    WHEN MONTH(c.birthDate) > MONTH(GETDATE()) 
+                         OR (MONTH(c.birthDate) = MONTH(GETDATE()) AND DAY(c.birthDate) >= DAY(GETDATE()))
+                    THEN DATEDIFF(DAY, GETDATE(), 
+                         DATEFROMPARTS(YEAR(GETDATE()), MONTH(c.birthDate), DAY(c.birthDate)))
+                    ELSE DATEDIFF(DAY, GETDATE(), 
+                         DATEFROMPARTS(YEAR(GETDATE()) + 1, MONTH(c.birthDate), DAY(c.birthDate)))
+                END ASC
+        `);
+
+        res.status(200).json(result.recordset);
+
+    } catch (err) {
+        console.error('getUpcomingBirthdays error:', err);
+        res.status(500).json({ message: 'Error fetching upcoming birthdays', error: err.message });
+    }
+};
+// ✅ إرسال إشعارات أعياد الميلاد (للـ Cron Job)
+const sendBirthdayReminders = async (req, res) => {
+    const { createAndPushToAll } = require('./notificationController');
+
+    try {
+        const request = new sql.Request();
+
+        // جلب أعياد ميلاد اليوم
+        const result = await request.query(`
+            SELECT 
+                c.ID_Child,
+                c.FullNameArabic AS childName,
+                c.birthDate,
+                c.FatherMobile1,
+                c.MotherMobile1,
+                FLOOR(DATEDIFF(DAY, c.birthDate, GETDATE()) / 365.25) AS age,
+                b.branchName
+            FROM tbl_Child c
+            LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+            WHERE 
+                c.Status = 1
+                AND DAY(c.birthDate) = DAY(GETDATE())
+                AND MONTH(c.birthDate) = MONTH(GETDATE())
+        `);
+
+        if (result.recordset.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: 'لا توجد أعياد ميلاد اليوم',
+                sent: 0
+            });
+        }
+
+        // تجهيز أسماء الأطفال
+        const names = result.recordset.map(c => c.childName).join('، ');
+        const count = result.recordset.length;
+
+        const title = '🎂 أعياد ميلاد اليوم';
+        const message = count === 1
+            ? `عيد ميلاد ${names} - أصبح عمره ${result.recordset[0].age} سنة 🎉`
+            : `${count} أطفال عيد ميلادهم اليوم: ${names} 🎉`;
+
+        // إرسال إشعار لكل المستخدمين
+        await createAndPushToAll(title, message, 'Birthday');
+
+        return res.status(200).json({
+            success: true,
+            message: `تم إرسال إشعار أعياد الميلاد`,
+            count: count,
+            children: result.recordset.map(c => ({
+                name: c.childName,
+                age: c.age,
+                branch: c.branchName,
+                fatherPhone: c.FatherMobile1,
+                motherPhone: c.MotherMobile1,
+            }))
+        });
+
+    } catch (err) {
+        console.error('sendBirthdayReminders error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في إرسال إشعارات أعياد الميلاد',
+            error: err.message
+        });
+    }
+};
 
 module.exports = {
     getAllChildren,
@@ -322,5 +444,7 @@ module.exports = {
     createNewChild,
     updateChild,
     deleteChild,
-    getTodayBirthdays
+    getTodayBirthdays,
+    getUpcomingBirthdays,
+    sendBirthdayReminders
 };

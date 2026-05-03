@@ -5,6 +5,8 @@ const childController = require('../controllers/childController');
 // الرابط: /api/children/
 router.get('/', childController.getAllChildren);
 router.get('/birthdays/today', childController.getTodayBirthdays);
+router.get('/birthdays/upcoming', childController.getUpcomingBirthdays);
+router.post('/birthdays/send-reminders', childController.sendBirthdayReminders);
 
 // الرابط: /api/children/123 (حيث 123 هو رقم الطفل)
 router.get('/:id', childController.getChildById);
