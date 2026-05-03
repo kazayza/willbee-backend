@@ -282,11 +282,45 @@ const deleteChild = async (req, res) => {
         res.status(500).json({ message: 'لا يمكن حذف الطفل لارتباطه ببيانات أخرى', error: err.message });
     }
 };
+// ✅ جلب أعياد ميلاد اليوم
+const getTodayBirthdays = async (req, res) => {
+    try {
+        const request = new sql.Request();
+
+        const result = await request.query(`
+            SELECT 
+                c.ID_Child,
+                c.FullNameArabic AS childName,
+                c.birthDate,
+                FLOOR(DATEDIFF(DAY, c.birthDate, GETDATE()) / 365.25) AS age,
+                b.branchName,
+                v.ClassName
+            FROM tbl_Child c
+            LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+            LEFT JOIN vw_ChildrenCurrentClass v ON c.ID_Child = v.ID_Child
+            WHERE 
+                c.Status = 1
+                AND DAY(c.birthDate) = DAY(GETDATE())
+                AND MONTH(c.birthDate) = MONTH(GETDATE())
+            ORDER BY c.FullNameArabic ASC
+        `);
+
+        res.status(200).json(result.recordset);
+
+    } catch (err) {
+        console.error('getTodayBirthdays error:', err);
+        res.status(500).json({ 
+            message: 'Error fetching birthdays', 
+            error: err.message 
+        });
+    }
+};
 
 module.exports = {
     getAllChildren,
     getChildById,
     createNewChild,
-    updateChild, // جديد
-    deleteChild  // جديد
+    updateChild,
+    deleteChild,
+    getTodayBirthdays
 };
