@@ -589,10 +589,40 @@ async function savePermissions(userId, permissions) {
     }
 }
 
+// 🔑 إعادة تعيين كلمة مرور مستخدم (للمدير)
+const resetPassword = async (req, res) => {
+    const { id } = req.params;
+    const { newPassword } = req.body;
+
+    if (!newPassword || newPassword.trim() === '') {
+        return res.status(400).json({ success: false, message: 'كلمة المرور الجديدة مطلوبة' });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('uid', sql.Int, id);
+        request.input('pass', sql.VarChar, newPassword);
+
+        const result = await request.query(`
+            UPDATE tbl_users SET Password = @pass WHERE UserId = @uid
+        `);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ success: false, message: 'المستخدم غير موجود' });
+        }
+
+        res.status(200).json({ success: true, message: 'تم إعادة تعيين كلمة المرور بنجاح' });
+    } catch (err) {
+        console.error('resetPassword error:', err);
+        res.status(500).json({ success: false, message: 'خطأ في إعادة تعيين كلمة المرور', error: err.message });
+    }
+};
+
 module.exports = {
     loginUser,
     getUserPermissions,
     changePassword,
+    resetPassword,
     updateFcmToken,
     sendNotificationToUser,
     sendNotificationToAll,

@@ -101,7 +101,7 @@ const getChildById = async (req, res) => {
 // 3. إضافة طفل جديد (مع حساب العمر + منع تكرار الرقم القومي)
 const createNewChild = async (req, res) => {
     const { 
-        FullNameArabic, FullNameEnglish, NationalID, birthDate, Branch,
+        FullNameArabic, FullNameEnglish, NationalID, birthDate, Age, Branch,
         FatherName, FatherMobile1, MotherName, MotherMobile1, ResidenceAddress,
         EmergencyName1, EmergencyNumber1, Notes, Allergies,
         DidFullTime, DoSports, WearDiapers, userAdd
@@ -111,35 +111,44 @@ const createNewChild = async (req, res) => {
         const request = new sql.Request();
         
         // ============================================
-        // 1️⃣ الخطوة الجديدة: التحقق من الرقم القومي
+        // 1️⃣ التحقق من الرقم القومي (لو موجود)
         // ============================================
-        request.input('checkNid', sql.Decimal(14, 0), NationalID);
-        
-        const checkResult = await request.query(`
-            SELECT ID_Child, FullNameArabic 
-            FROM tbl_Child 
-            WHERE NationalID = @checkNid
-        `);
+        const hasNationalID = NationalID && String(NationalID).trim() !== '';
+        if (hasNationalID) {
+            request.input('checkNid', sql.Decimal(14, 0), NationalID);
+            
+            const checkResult = await request.query(`
+                SELECT ID_Child, FullNameArabic 
+                FROM tbl_Child 
+                WHERE NationalID = @checkNid
+            `);
 
-        // لو لقينا نتيجة، نوقف فوراً ونرجع رسالة خطأ
-        if (checkResult.recordset.length > 0) {
-            return res.status(409).json({ 
-                message: 'عفواً، هذا الرقم القومي مسجل مسبقاً لطفل آخر ⚠️',
-                existingChild: checkResult.recordset[0].FullNameArabic // بنرجع اسم الطفل الموجود عشان التوضيح
-            });
+            if (checkResult.recordset.length > 0) {
+                return res.status(409).json({ 
+                    message: 'عفواً، هذا الرقم القومي مسجل مسبقاً لطفل آخر ⚠️',
+                    existingChild: checkResult.recordset[0].FullNameArabic
+                });
+            }
         }
 
         // ============================================
-        // 2️⃣ حساب العمر (زي ما اتفقنا)
+        // 2️⃣ حساب العمر: نستخدم العمر المُدخل يدوياً لو موجود،
+        //    ولو مش موجود نحسبه من تاريخ الميلاد، ولو مفيش يبقى 0
         // ============================================
-        const birthDateObj = new Date(birthDate);
-        const today = new Date();
-        let calculatedAge = today.getFullYear() - birthDateObj.getFullYear();
-        const m = today.getMonth() - birthDateObj.getMonth();
-        if (m < 0 || (m === 0 && today.getDate() < birthDateObj.getDate())) {
-            calculatedAge--;
+        let finalAge = 0;
+        const manualAge = parseInt(Age, 10);
+        if (!isNaN(manualAge) && manualAge > 0) {
+            finalAge = manualAge;
+        } else if (birthDate) {
+            const birthDateObj = new Date(birthDate);
+            const today = new Date();
+            let calculatedAge = today.getFullYear() - birthDateObj.getFullYear();
+            const m = today.getMonth() - birthDateObj.getMonth();
+            if (m < 0 || (m === 0 && today.getDate() < birthDateObj.getDate())) {
+                calculatedAge--;
+            }
+            finalAge = calculatedAge < 0 ? 0 : calculatedAge;
         }
-        calculatedAge = calculatedAge < 0 ? 0 : calculatedAge;
 
         // ============================================
         // 3️⃣ عملية الحفظ (Insert)
@@ -148,9 +157,9 @@ const createNewChild = async (req, res) => {
         // تعريف باقي المتغيرات
         request.input('nameAr', sql.NVarChar, FullNameArabic);
         request.input('nameEn', sql.NVarChar, FullNameEnglish);
-        request.input('nid', sql.Decimal(14, 0), NationalID);
-        request.input('bdate', sql.DateTime, birthDate);
-        request.input('age', sql.SmallInt, calculatedAge);
+        request.input('nid', sql.Decimal(14, 0), hasNationalID ? NationalID : null);
+        request.input('bdate', sql.DateTime, birthDate || null);
+        request.input('age', sql.SmallInt, finalAge);
         request.input('branch', sql.SmallInt, Branch);
         request.input('status', sql.Bit, 1); 
         
@@ -196,7 +205,7 @@ const createNewChild = async (req, res) => {
 const updateChild = async (req, res) => {
     const { id } = req.params;
     const { 
-        FullNameArabic, FullNameEnglish, NationalID, birthDate, Branch,
+        FullNameArabic, FullNameEnglish, NationalID, birthDate, Age, Branch,
         FatherName, FatherMobile1, MotherName, MotherMobile1, ResidenceAddress,
         EmergencyName1, EmergencyNumber1, Notes, Allergies,
         DidFullTime, DoSports, WearDiapers, userEdit // اسم المستخدم اللي عدل
@@ -208,8 +217,8 @@ const updateChild = async (req, res) => {
         
         request.input('nameAr', sql.NVarChar, FullNameArabic);
         request.input('nameEn', sql.NVarChar, FullNameEnglish);
-        request.input('nid', sql.Decimal(14, 0), NationalID);
-        request.input('bdate', sql.DateTime, birthDate);
+        request.input('nid', sql.Decimal(14, 0), (NationalID && String(NationalID).trim() !== '') ? NationalID : null);
+        request.input('bdate', sql.DateTime, birthDate || null);
         request.input('branch', sql.SmallInt, Branch);
         
         request.input('fName', sql.VarChar, FatherName);
@@ -228,6 +237,21 @@ const updateChild = async (req, res) => {
         request.input('diapers', sql.Bit, WearDiapers);
         request.input('user', sql.VarChar, userEdit);
 
+        // 🎂 العمر: نستخدم المُدخل يدوياً، ولو مش موجود نحسبه من التاريخ
+        const manualAge = parseInt(Age, 10);
+        let finalAge = 0;
+        if (!isNaN(manualAge) && manualAge > 0) {
+            finalAge = manualAge;
+        } else if (birthDate) {
+            const bd = new Date(birthDate);
+            const today = new Date();
+            let calc = today.getFullYear() - bd.getFullYear();
+            const m = today.getMonth() - bd.getMonth();
+            if (m < 0 || (m === 0 && today.getDate() < bd.getDate())) calc--;
+            finalAge = calc < 0 ? 0 : calc;
+        }
+        request.input('age', sql.SmallInt, finalAge);
+
         await request.query(`
             UPDATE tbl_Child 
             SET 
@@ -235,6 +259,7 @@ const updateChild = async (req, res) => {
                 FullNameEnglish = @nameEn,
                 NationalID = @nid,
                 birthDate = @bdate,
+                Age = @age,
                 Branch = @branch,
                 FatherName = @fName,
                 FatherMobile1 = @fMob,

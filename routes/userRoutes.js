@@ -26,6 +26,7 @@ router.post('/send-notification-all', userController.sendNotificationToAll);
 
 // ─── مسارات ديناميكية (/:id) ───
 router.get('/:id/permissions', userController.getUserPermissions);
+router.post('/:id/reset-password', userController.resetPassword); // إعادة تعيين كلمة المرور
 router.get('/:id', userController.getUserById);           // مستخدم + صلاحياته
 router.post('/', userController.createUser);              // إنشاء مستخدم
 router.put('/:id', userController.updateUser);            // تعديل مستخدم
