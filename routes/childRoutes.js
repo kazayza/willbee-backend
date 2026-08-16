@@ -4,6 +4,7 @@ const childController = require('../controllers/childController');
 
 // الرابط: /api/children/
 router.get('/', childController.getAllChildren);
+router.get('/needs-review', childController.getChildrenNeedingReview); // 🚨 أطفال محتاجين مراجعة
 router.get('/birthdays/today', childController.getTodayBirthdays);
 router.get('/birthdays/upcoming', childController.getUpcomingBirthdays);
 router.post('/birthdays/send-reminders', childController.sendBirthdayReminders);

@@ -64,6 +64,68 @@ const getAllChildren = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 🚨 جلب الأطفال المحتاجين مراجعة بيانات (ناقصين أو بيانات خاطئة)
+// ═══════════════════════════════════════════════════════════════
+const getChildrenNeedingReview = async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                c.ID_Child,
+                c.FullNameArabic,
+                c.NationalID,
+                c.birthDate,
+                c.Age,
+                c.Branch,
+                b.branchName,
+                c.Status,
+                c.Addtime,
+                v.ClassName,
+                -- 🚩 أنواع المشاكل (1 = فيه مشكلة)
+                CASE WHEN c.Age IS NULL OR c.Age <= 0 THEN 1 ELSE 0 END AS MissingAge,
+                CASE WHEN c.Age > 100 THEN 1 ELSE 0 END AS InvalidAge,
+                CASE WHEN c.NationalID IS NULL OR c.NationalID = 0 THEN 1 ELSE 0 END AS MissingNationalID,
+                CASE WHEN c.birthDate IS NULL THEN 1 ELSE 0 END AS MissingBirthDate
+            FROM tbl_Child c
+            LEFT JOIN tbl_Branch b ON c.Branch = b.IDbranch
+            LEFT JOIN vw_ChildrenCurrentClass v ON c.ID_Child = v.ID_Child
+            WHERE (c.Age IS NULL OR c.Age <= 0 OR c.Age > 100)
+               OR (c.NationalID IS NULL OR c.NationalID = 0)
+               OR c.birthDate IS NULL
+            ORDER BY 
+                (CASE WHEN c.birthDate IS NULL THEN 1 ELSE 0 END) DESC,
+                (CASE WHEN c.Age IS NULL OR c.Age <= 0 OR c.Age > 100 THEN 1 ELSE 0 END) DESC,
+                c.ID_Child DESC
+        `;
+
+        const result = await sql.query(query);
+
+        // تجهيز عدد المشاكل لكل طفل + ملخص سريع
+        const enriched = result.recordset.map(row => {
+            const issues = [];
+            if (row.MissingAge) issues.push('العمر غير مسجل');
+            if (row.InvalidAge) issues.push('العمر غير صحيح');
+            if (row.MissingNationalID) issues.push('بدون رقم قومي');
+            if (row.MissingBirthDate) issues.push('بدون تاريخ ميلاد');
+            return {
+                ...row,
+                issueCount: issues.length,
+                issues: issues
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            total: enriched.length,
+            data: enriched
+        });
+
+    } catch (err) {
+        console.error('getChildrenNeedingReview error:', err);
+        res.status(500).json({ message: 'Error fetching children needing review', error: err.message });
+    }
+};
+
 // 2. دالة جديدة: جلب طفل واحد بالـ ID
 const getChildById = async (req, res) => {
     const id = req.params.id; // بناخد الرقم من الرابط
@@ -469,6 +531,7 @@ module.exports = {
     createNewChild,
     updateChild,
     deleteChild,
+    getChildrenNeedingReview,
     getTodayBirthdays,
     getUpcomingBirthdays,
     sendBirthdayReminders

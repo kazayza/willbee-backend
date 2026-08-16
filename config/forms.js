@@ -9,6 +9,7 @@ const FORMS = [
     // ─────────────── شئون الأطفال ───────────────
     { fname: 'frm_ChildNew',          title: 'تسجيل طفل جديد',            category: 'شئون الأطفال' },
     { fname: 'frm_Child',             title: 'قائمة الأطفال',              category: 'شئون الأطفال' },
+    { fname: 'frm_ChildrenReview',    title: 'أطفال محتاجين مراجعة',       category: 'شئون الأطفال' },
     { fname: 'frmClassesDashboard',   title: 'إدارة الفصول',               category: 'شئون الأطفال' },
     { fname: 'frm_absenseChild',      title: 'غياب الأطفال',               category: 'شئون الأطفال' },
     { fname: 'frm_ChildIncome',       title: 'اشتراكات الأطفال',           category: 'شئون الأطفال' },
