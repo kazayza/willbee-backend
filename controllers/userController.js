@@ -11,15 +11,20 @@ const loginUser = async (req, res) => {
         request.input('user', sql.VarChar, UserName);
         request.input('pass', sql.VarChar, Password);
 
-        // 1️⃣ التحقق من بيانات المستخدم + EmpID
+        // 1️⃣ التحقق من بيانات المستخدم + EmpID + نشط
         const userResult = await request.query(`
-            SELECT UserId, FullName, Role, permision, EmpID
+            SELECT UserId, FullName, Role, permision, EmpID, IsActive
             FROM tbl_users 
             WHERE UserName = @user AND Password = @pass
         `);
 
         if (userResult.recordset.length > 0) {
             const user = userResult.recordset[0];
+
+            // ⛔ منع دخول المستخدم الموقوف (غير النشط)
+            if (user.IsActive === false || user.IsActive === 0) {
+                return res.status(403).json({ message: 'هذا الحساب موقوف، تواصل مع المدير' });
+            }
 
             // 2️⃣ جلب الصلاحيات التفصيلية لهذا المستخدم
             const permRequest = new sql.Request();
@@ -320,6 +325,270 @@ const getLeadsAssignees = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 👥 إدارة المستخدمين والصلاحيات
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 📋 جلب كل المستخدمين
+const getAllUsers = async (req, res) => {
+    try {
+        const request = new sql.Request();
+        const result = await request.query(`
+            SELECT 
+                u.UserId,
+                u.UserName,
+                u.FullName,
+                u.Mail,
+                u.Role,
+                u.EmpID,
+                u.IsActive,
+                e.empName
+            FROM tbl_users u
+            LEFT JOIN tbl_empolyee e ON u.EmpID = e.ID
+            ORDER BY u.UserId DESC
+        `);
+        res.status(200).json({ success: true, data: result.recordset });
+    } catch (err) {
+        console.error('getAllUsers error:', err);
+        res.status(500).json({ success: false, message: 'خطأ في جلب المستخدمين', error: err.message });
+    }
+};
+
+// 📋 جلب قائمة الشاشات + الأدوار (لبناء مصفوفة الصلاحيات)
+const getFormsAndRoles = async (req, res) => {
+    try {
+        const { FORMS, ROLES } = require('../config/forms');
+        res.status(200).json({ success: true, forms: FORMS, roles: ROLES });
+    } catch (err) {
+        console.error('getFormsAndRoles error:', err);
+        res.status(500).json({ success: false, message: 'خطأ في جلب الشاشات', error: err.message });
+    }
+};
+
+// 🔍 جلب مستخدم واحد + صلاحياته
+const getUserById = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const request = new sql.Request();
+        request.input('uid', sql.Int, id);
+
+        const userResult = await request.query(`
+            SELECT UserId, UserName, FullName, Mail, Role, EmpID, IsActive
+            FROM tbl_users WHERE UserId = @uid
+        `);
+
+        if (userResult.recordset.length === 0) {
+            return res.status(404).json({ success: false, message: 'المستخدم غير موجود' });
+        }
+
+        const permRequest = new sql.Request();
+        permRequest.input('uid', sql.Int, id);
+        const permResult = await permRequest.query(`
+            SELECT fname, canAdd, canEdit, canDelete, canview, canOpen
+            FROM tbl_usercontrol WHERE userCode = @uid
+        `);
+
+        res.status(200).json({
+            success: true,
+            user: userResult.recordset[0],
+            permissions: permResult.recordset
+        });
+    } catch (err) {
+        console.error('getUserById error:', err);
+        res.status(500).json({ success: false, message: 'خطأ في جلب المستخدم', error: err.message });
+    }
+};
+
+// ➕ إنشاء مستخدم جديد + حفظ صلاحياته
+const createUser = async (req, res) => {
+    const { UserName, Password, FullName, Mail, Role, EmpID, IsActive, permissions } = req.body;
+
+    if (!UserName || !Password) {
+        return res.status(400).json({ success: false, message: 'اسم المستخدم وكلمة المرور مطلوبين' });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('username', sql.VarChar, UserName);
+
+        // 1️⃣ منع تكرار اسم المستخدم
+        const check = await request.query(`SELECT UserId FROM tbl_users WHERE UserName = @username`);
+        if (check.recordset.length > 0) {
+            return res.status(400).json({ success: false, message: 'اسم المستخدم موجود بالفعل' });
+        }
+
+        // 2️⃣ إنشاء المستخدم
+        const insertRequest = new sql.Request();
+        insertRequest.input('username', sql.VarChar, UserName);
+        insertRequest.input('pass', sql.VarChar, Password);
+        insertRequest.input('fullname', sql.VarChar, FullName || null);
+        insertRequest.input('mail', sql.VarChar, Mail || null);
+        insertRequest.input('role', sql.VarChar, Role || null);
+        insertRequest.input('empid', sql.Int, EmpID || null);
+        insertRequest.input('isActive', sql.Bit, IsActive !== false ? 1 : 0);
+
+        const insertResult = await insertRequest.query(`
+            INSERT INTO tbl_users (UserName, Password, FullName, Mail, Role, EmpID, IsActive)
+            OUTPUT INSERTED.UserId
+            VALUES (@username, @pass, @fullname, @mail, @role, @empid, @isActive)
+        `);
+
+        const newUserId = insertResult.recordset[0].UserId;
+
+        // 3️⃣ حفظ الصلاحيات
+        await savePermissions(newUserId, permissions);
+
+        res.status(201).json({
+            success: true,
+            message: 'تم إنشاء المستخدم بنجاح',
+            userId: newUserId
+        });
+    } catch (err) {
+        console.error('createUser error:', err);
+        res.status(500).json({ success: false, message: 'خطأ في إنشاء المستخدم', error: err.message });
+    }
+};
+
+// ✏️ تعديل مستخدم + تحديث صلاحياته
+const updateUser = async (req, res) => {
+    const { id } = req.params;
+    const { UserName, Password, FullName, Mail, Role, EmpID, IsActive, permissions } = req.body;
+
+    try {
+        // 1️⃣ منع تكرار اسم المستخدم مع مستخدم آخر
+        if (UserName) {
+            const checkRequest = new sql.Request();
+            checkRequest.input('username', sql.VarChar, UserName);
+            checkRequest.input('uid', sql.Int, id);
+            const check = await checkRequest.query(`
+                SELECT UserId FROM tbl_users 
+                WHERE UserName = @username AND UserId != @uid
+            `);
+            if (check.recordset.length > 0) {
+                return res.status(400).json({ success: false, message: 'اسم المستخدم مستخدم بالفعل لمستخدم آخر' });
+            }
+        }
+
+        // 2️⃣ تحديث بيانات المستخدم
+        const updateRequest = new sql.Request();
+        updateRequest.input('uid', sql.Int, id);
+        updateRequest.input('username', sql.VarChar, UserName);
+        updateRequest.input('fullname', sql.VarChar, FullName || null);
+        updateRequest.input('mail', sql.VarChar, Mail || null);
+        updateRequest.input('role', sql.VarChar, Role || null);
+        updateRequest.input('empid', sql.Int, EmpID || null);
+        updateRequest.input('isActive', sql.Bit, IsActive !== false ? 1 : 0);
+
+        await updateRequest.query(`
+            UPDATE tbl_users SET
+                UserName = @username,
+                FullName = @fullname,
+                Mail = @mail,
+                Role = @role,
+                EmpID = @empid,
+                IsActive = @isActive
+            WHERE UserId = @uid
+        `);
+
+        // 3️⃣ تحديث كلمة المرور (لو اتبعتت)
+        if (Password && Password.trim() !== '') {
+            const passRequest = new sql.Request();
+            passRequest.input('uid', sql.Int, id);
+            passRequest.input('pass', sql.VarChar, Password);
+            await passRequest.query(`UPDATE tbl_users SET Password = @pass WHERE UserId = @uid`);
+        }
+
+        // 4️⃣ تحديث الصلاحيات (حذف القديم وإعادة الإدراج)
+        if (Array.isArray(permissions)) {
+            await savePermissions(id, permissions);
+        }
+
+        res.status(200).json({ success: true, message: 'تم تحديث المستخدم بنجاح' });
+    } catch (err) {
+        console.error('updateUser error:', err);
+        res.status(500).json({ success: false, message: 'خطأ في تحديث المستخدم', error: err.message });
+    }
+};
+
+// 🔄 تفعيل / تعطيل مستخدم
+const toggleUserActive = async (req, res) => {
+    const { id } = req.params;
+    const { IsActive } = req.body;
+
+    try {
+        const request = new sql.Request();
+        request.input('uid', sql.Int, id);
+        request.input('isActive', sql.Bit, IsActive ? 1 : 0);
+
+        const result = await request.query(`
+            UPDATE tbl_users SET IsActive = @isActive WHERE UserId = @uid
+        `);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ success: false, message: 'المستخدم غير موجود' });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: IsActive ? 'تم تفعيل المستخدم' : 'تم تعطيل المستخدم'
+        });
+    } catch (err) {
+        console.error('toggleUserActive error:', err);
+        res.status(500).json({ success: false, message: 'خطأ في تحديث حالة المستخدم', error: err.message });
+    }
+};
+
+// 🗑️ حذف مستخدم نهائيًا + صلاحياته
+const deleteUser = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        const request = new sql.Request();
+        request.input('uid', sql.Int, id);
+
+        // حذف الصلاحيات أولاً ثم المستخدم
+        await request.query(`DELETE FROM tbl_usercontrol WHERE userCode = @uid`);
+        const result = await request.query(`DELETE FROM tbl_users WHERE UserId = @uid`);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({ success: false, message: 'المستخدم غير موجود' });
+        }
+
+        res.status(200).json({ success: true, message: 'تم حذف المستخدم بنجاح' });
+    } catch (err) {
+        console.error('deleteUser error:', err);
+        res.status(500).json({ success: false, message: 'خطأ في حذف المستخدم', error: err.message });
+    }
+};
+
+// ─────────────────────────────────────────────────────────────
+// 🛠️ دالة مساعدة: حفظ صلاحيات مستخدم (حذف القديم + إدراج الجديد)
+// ─────────────────────────────────────────────────────────────
+async function savePermissions(userId, permissions) {
+    const delRequest = new sql.Request();
+    delRequest.input('uid', sql.Int, userId);
+    await delRequest.query(`DELETE FROM tbl_usercontrol WHERE userCode = @uid`);
+
+    if (!Array.isArray(permissions) || permissions.length === 0) return;
+
+    for (const p of permissions) {
+        if (!p.fname) continue;
+        const insRequest = new sql.Request();
+        insRequest.input('uid', sql.Int, userId);
+        insRequest.input('fname', sql.VarChar, p.fname);
+        insRequest.input('canAdd', sql.Bit, p.canAdd ? 1 : 0);
+        insRequest.input('canEdit', sql.Bit, p.canEdit ? 1 : 0);
+        insRequest.input('canDelete', sql.Bit, p.canDelete ? 1 : 0);
+        insRequest.input('canOpen', sql.Bit, p.canOpen ? 1 : 0);
+        insRequest.input('canview', sql.Bit, p.canview ? 1 : 0);
+
+        await insRequest.query(`
+            INSERT INTO tbl_usercontrol (userCode, fname, canAdd, canEdit, canDelete, canOpen, canview)
+            VALUES (@uid, @fname, @canAdd, @canEdit, @canDelete, @canOpen, @canview)
+        `);
+    }
+}
+
 module.exports = {
     loginUser,
     getUserPermissions,
@@ -327,5 +596,12 @@ module.exports = {
     updateFcmToken,
     sendNotificationToUser,
     sendNotificationToAll,
-    getLeadsAssignees
+    getLeadsAssignees,
+    getAllUsers,
+    getFormsAndRoles,
+    getUserById,
+    createUser,
+    updateUser,
+    toggleUserActive,
+    deleteUser
 };
