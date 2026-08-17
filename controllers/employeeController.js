@@ -366,22 +366,31 @@ const getActiveEmployeesSummary = async (req, res) => {
         `);
 
         // 2️⃣ إحصائيات الفروع (عدد + إجمالي الأساسيات)
+        // ملاحظة: بنستخدم subquery في الـ FROM عشان نحسب آخر أساسي لكل موظف
+        // الأول، وبعدين نجمع عليه (لأن SUM حول subquery ممنوع في SQL Server)
         const statsResult = await request.query(`
             SELECT 
-                ISNULL(b.branchName, 'بدون فرع') AS branchName,
-                e.BranchID,
+                ISNULL(branchName, 'بدون فرع') AS branchName,
+                BranchID,
                 COUNT(*) AS employeeCount,
-                SUM(ISNULL((
-                    SELECT TOP 1 s.BaseSalary
-                    FROM tbl_baseSalaryEmpolyee s
-                    WHERE s.ID_emp = e.ID
-                    ORDER BY s.increseDate DESC, s.ID DESC
-                ), 0)) AS totalBaseSalary
-            FROM tbl_empolyee e
-            LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
-            WHERE e.empstatus = 1
-            GROUP BY b.branchName, e.BranchID
-            ORDER BY b.branchName ASC
+                SUM(LastBaseSalary) AS totalBaseSalary
+            FROM (
+                SELECT 
+                    e.ID,
+                    e.BranchID,
+                    b.branchName,
+                    ISNULL((
+                        SELECT TOP 1 s.BaseSalary
+                        FROM tbl_baseSalaryEmpolyee s
+                        WHERE s.ID_emp = e.ID
+                        ORDER BY s.increseDate DESC, s.ID DESC
+                    ), 0) AS LastBaseSalary
+                FROM tbl_empolyee e
+                LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
+                WHERE e.empstatus = 1
+            ) AS empSalaries
+            GROUP BY branchName, BranchID
+            ORDER BY branchName ASC
         `);
 
         res.status(200).json({
