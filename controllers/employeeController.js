@@ -346,6 +346,7 @@ const getActiveEmployeesSummary = async (req, res) => {
                 e.BranchID,
                 b.branchName,
                 w.workdescription,
+                e.Addtime AS addTime,
                 ISNULL((
                     SELECT TOP 1 s.BaseSalary
                     FROM tbl_baseSalaryEmpolyee s
