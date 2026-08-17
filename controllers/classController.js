@@ -1215,6 +1215,162 @@ const getClassesArchive = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 19. حذف فصل (Soft Delete) — IsActive = 0
+// ═══════════════════════════════════════════════════════════════
+const deleteClass = async (req, res) => {
+    const { id } = req.params;
+    const { userEdit } = req.body;
+
+    if (!id || isNaN(id)) {
+        return res.status(400).json({
+            success: false,
+            message: 'رقم الفصل غير صحيح'
+        });
+    }
+
+    const egyptTime = getEgyptTime();
+
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, parseInt(id));
+        request.input('egyptTime', sql.DateTime, egyptTime);
+        request.input('user', sql.VarChar, userEdit || 'System');
+
+        // التأكد من وجود الفصل
+        const checkExist = await request.query(
+            `SELECT Class_ID, ClassName FROM tbl_Classroom WHERE Class_ID = @id`
+        );
+        if (checkExist.recordset.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'الفصل غير موجود'
+            });
+        }
+
+        await request.query(`
+            UPDATE tbl_Classroom
+            SET IsActive = 0,
+                useredit = @user,
+                editTime = @egyptTime
+            WHERE Class_ID = @id
+        `);
+
+        res.status(200).json({
+            success: true,
+            message: `تم حذف فصل "${checkExist.recordset[0].ClassName}" بنجاح`
+        });
+
+    } catch (err) {
+        console.error('deleteClass Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'فشل حذف الفصل',
+            error: err.message
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 20. استرجاع فصل محذوف — IsActive = 1
+// ═══════════════════════════════════════════════════════════════
+const restoreClass = async (req, res) => {
+    const { id } = req.params;
+    const { userEdit } = req.body;
+
+    if (!id || isNaN(id)) {
+        return res.status(400).json({
+            success: false,
+            message: 'رقم الفصل غير صحيح'
+        });
+    }
+
+    const egyptTime = getEgyptTime();
+
+    try {
+        const request = new sql.Request();
+        request.input('id', sql.Int, parseInt(id));
+        request.input('egyptTime', sql.DateTime, egyptTime);
+        request.input('user', sql.VarChar, userEdit || 'System');
+
+        const result = await request.query(`
+            UPDATE tbl_Classroom
+            SET IsActive = 1,
+                useredit = @user,
+                editTime = @egyptTime
+            WHERE Class_ID = @id
+        `);
+
+        if (result.rowsAffected[0] === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'الفصل غير موجود'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'تم استرجاع الفصل بنجاح 🔄'
+        });
+
+    } catch (err) {
+        console.error('restoreClass Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'فشل استرجاع الفصل',
+            error: err.message
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 21. جلب الفصول المحذوفة (IsActive = 0)
+// ═══════════════════════════════════════════════════════════════
+const getDeletedClasses = async (req, res) => {
+    const { branchId } = req.query;
+
+    try {
+        const request = new sql.Request();
+
+        let query = `
+            SELECT 
+                C.Class_ID,
+                C.ClassName,
+                C.Capacity,
+                C.Notes,
+                C.BranchID,
+                B.branchName,
+                C.editTime
+            FROM tbl_Classroom C
+            LEFT JOIN tbl_Branch B ON C.BranchID = B.IDbranch
+            WHERE C.IsActive = 0
+        `;
+
+        if (branchId) {
+            request.input('branchId', sql.SmallInt, parseInt(branchId));
+            query += ` AND C.BranchID = @branchId`;
+        }
+
+        query += ` ORDER BY C.editTime DESC`;
+
+        const result = await request.query(query);
+
+        res.status(200).json({
+            success: true,
+            count: result.recordset.length,
+            data: result.recordset
+        });
+
+    } catch (err) {
+        console.error('getDeletedClasses Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب الفصول المحذوفة',
+            error: err.message
+        });
+    }
+};
+
 module.exports = {
     getClassesDashboard,
     assignStudent,
@@ -1233,5 +1389,8 @@ module.exports = {
     getClassActivities,
     getClassActiveActivities,
     archiveClasses,
-    getClassesArchive
+    getClassesArchive,
+    deleteClass,
+    restoreClass,
+    getDeletedClasses
 };

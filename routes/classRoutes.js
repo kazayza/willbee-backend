@@ -13,6 +13,9 @@ router.get('/activities', classController.getClassActivities);
 // أرشيف الفصول الشامل 🆕
 router.get('/archive', classController.getClassesArchive);
 
+// الفصول المحذوفة 🆕
+router.get('/deleted', classController.getDeletedClasses);
+
 // الأنشطة النشطة في فصل معين 🆕
 router.get('/:classId/active-activities', classController.getClassActiveActivities);
 
@@ -64,5 +67,13 @@ router.patch('/teacher/:assignId/deactivate', classController.removeTeacherFromC
 
 // إخراج طفل من الفصل 🆕
 router.delete('/student/:historyId', classController.removeStudentFromClass);
+
+// حذف فصل (Soft Delete) 🆕
+router.delete('/:id', classController.deleteClass);
+
+// ================== RESTORE ==================
+
+// استرجاع فصل محذوف 🆕
+router.post('/:id/restore', classController.restoreClass);
 
 module.exports = router;
