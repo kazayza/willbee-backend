@@ -11,7 +11,9 @@ const setChildSubscription = async (req, res) => {
         sessionId,     
         kindSubscription, // لازم تكون نص محدد: "اشتراك الدراسة السنوى" أو "اشتراك الباص"
         user,
-        subDate           
+        subDate,
+        withdraw,        // 🆕 سحب الاشتراك (0 = نشط، 1 = منسحب)
+        withdrawAmount   // 🆕 مبلغ السحب
     } = req.body;
 
     try {
@@ -25,7 +27,9 @@ const setChildSubscription = async (req, res) => {
         request.input('disc', sql.Decimal(7, 2), discount || 0);
         request.input('bus', sql.SmallInt, busLineId); 
         request.input('user', sql.VarChar, user);
-        request.input('date', sql.DateTime, subDate || new Date()); 
+        request.input('date', sql.DateTime, subDate || new Date());
+        request.input('withdraw', sql.Bit, withdraw ? 1 : 0);
+        request.input('withdrawAmount', sql.Decimal(7, 2), withdrawAmount || 0);
 
         // 1️⃣ البحث الثلاثي: هل للطفل سجل في هذه السنة لهذا النوع؟
         const check = await request.query(`
@@ -46,6 +50,8 @@ const setChildSubscription = async (req, res) => {
                     discount = @disc, 
                     BusLine = @bus, 
                     SubDate = @date,
+                    withdraw = @withdraw,
+                    withdrawamount = @withdrawAmount,
                     useredit = @user,
                     editTime = GETDATE()
                 WHERE ID = ${recordID}
@@ -56,9 +62,9 @@ const setChildSubscription = async (req, res) => {
             // 🆕 غير موجود لهذا النوع -> إضافة جديد
             await request.query(`
                 INSERT INTO tbl_FinanceChild 
-                (Child_Id, SessionID, Kind_subscrip, amountBase, amount_Sub, discount, BusLine, SubDate, userAdd, Addtime, withdraw)
+                (Child_Id, SessionID, Kind_subscrip, amountBase, amount_Sub, discount, BusLine, SubDate, userAdd, Addtime, withdraw, withdrawamount)
                 VALUES 
-                (@child, @sess, @kind, @base, @sub, @disc, @bus, @date, @user, GETDATE(), 0)
+                (@child, @sess, @kind, @base, @sub, @disc, @bus, @date, @user, GETDATE(), @withdraw, @withdrawAmount)
             `);
             res.status(201).json({ message: `تم إضافة ${kindSubscription} جديد بنجاح ✅` });
         }
@@ -87,6 +93,8 @@ const getChildSubscription = async (req, res) => {
                 f.BusLine,
                 f.Kind_subscrip,     -- ✅ ضفنا النوع
                 f.SubDate,           -- ✅ ضفنا التاريخ
+                f.withdraw,          -- 🆕 حالة السحب
+                f.withdrawamount,    -- 🆕 مبلغ السحب
                 b.BusLine as BusLineName,
                 f.SessionID,
                 s.Sessions as SessionName
