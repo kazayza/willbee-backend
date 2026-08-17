@@ -13,6 +13,10 @@ router.get('/with-users', empController.getEmployeesWithUsers);
 // GET /api/employees/jobs
 router.get('/jobs', empController.getEmployeeJobs);
 
+// 📊 ملخص الموظفين النشطين + إحصائيات الفروع
+// GET /api/employees/active-summary
+router.get('/active-summary', empController.getActiveEmployeesSummary);
+
 // إضافة موظف
 // POST /api/employees
 router.post('/', empController.createEmployee);

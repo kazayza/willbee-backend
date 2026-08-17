@@ -16,6 +16,7 @@ const FORMS = [
 
     // ─────────────── الموارد البشرية ───────────────
     { fname: 'Employee List',         title: 'قائمة الموظفين',             category: 'الموارد البشرية' },
+    { fname: 'frm_EmployeesSalarySummary', title: 'ملخص الموظفين النشطين', category: 'الموارد البشرية' },
     { fname: 'frm_absenseEmp',        title: 'الحضور والانصراف',           category: 'الموارد البشرية' },
     { fname: 'frm_eshraf',            title: 'الجزاءات والمكافآت',         category: 'الموارد البشرية' },
     { fname: 'frm_eshrafOnly',        title: 'الإشراف',                    category: 'الموارد البشرية' },

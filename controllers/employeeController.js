@@ -328,6 +328,78 @@ const deleteEmployeeSalary = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 📊 ملخص الموظفين النشطين (الاسم + الفرع + الوظيفة + آخر أساسي)
+//    + إحصائيات الفروع (عدد الموظفين + إجمالي الأساسيات)
+// ═══════════════════════════════════════════════════════════════
+const getActiveEmployeesSummary = async (req, res) => {
+    try {
+        const request = new sql.Request();
+
+        // 1️⃣ جلب الموظفين النشطين مع آخر أساسي
+        const employeesResult = await request.query(`
+            SELECT 
+                e.ID,
+                e.empName,
+                e.job,
+                e.mobile1,
+                e.BranchID,
+                b.branchName,
+                w.workdescription,
+                ISNULL((
+                    SELECT TOP 1 s.BaseSalary
+                    FROM tbl_baseSalaryEmpolyee s
+                    WHERE s.ID_emp = e.ID
+                    ORDER BY s.increseDate DESC, s.ID DESC
+                ), 0) AS LastBaseSalary,
+                (
+                    SELECT TOP 1 s.increseDate
+                    FROM tbl_baseSalaryEmpolyee s
+                    WHERE s.ID_emp = e.ID
+                    ORDER BY s.increseDate DESC, s.ID DESC
+                ) AS LastSalaryDate
+            FROM tbl_empolyee e
+            LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
+            LEFT JOIN tbl_empworker w ON e.EmpType = w.ID
+            WHERE e.empstatus = 1
+            ORDER BY b.branchName ASC, e.empName ASC
+        `);
+
+        // 2️⃣ إحصائيات الفروع (عدد + إجمالي الأساسيات)
+        const statsResult = await request.query(`
+            SELECT 
+                ISNULL(b.branchName, 'بدون فرع') AS branchName,
+                e.BranchID,
+                COUNT(*) AS employeeCount,
+                SUM(ISNULL((
+                    SELECT TOP 1 s.BaseSalary
+                    FROM tbl_baseSalaryEmpolyee s
+                    WHERE s.ID_emp = e.ID
+                    ORDER BY s.increseDate DESC, s.ID DESC
+                ), 0)) AS totalBaseSalary
+            FROM tbl_empolyee e
+            LEFT JOIN tbl_Branch b ON e.BranchID = b.IDbranch
+            WHERE e.empstatus = 1
+            GROUP BY b.branchName, e.BranchID
+            ORDER BY b.branchName ASC
+        `);
+
+        res.status(200).json({
+            success: true,
+            data: employeesResult.recordset,
+            stats: statsResult.recordset,
+            totalEmployees: employeesResult.recordset.length,
+            totalBaseSalary: statsResult.recordset.reduce(
+                (sum, s) => sum + (Number(s.totalBaseSalary) || 0), 0
+            )
+        });
+
+    } catch (err) {
+        console.error('getActiveEmployeesSummary error:', err);
+        res.status(500).json({ message: 'Error fetching employees summary', error: err.message });
+    }
+};
+
 module.exports = {
     getEmployees,
     getEmployeeJobs,
@@ -337,5 +409,6 @@ module.exports = {
     addEmployeeSalary,
     deleteEmployeeSalary,
     getEmployeesWithUsers,
-    getEmployeeById
+    getEmployeeById,
+    getActiveEmployeesSummary
 };
