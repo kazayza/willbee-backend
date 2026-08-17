@@ -10,6 +10,12 @@ router.get('/dashboard', classController.getClassesDashboard);
 // جلب قائمة أنواع الأنشطة (دراسة + أنشطة) 🆕
 router.get('/activities', classController.getClassActivities);
 
+// أرشيف الفصول الشامل 🆕
+router.get('/archive', classController.getClassesArchive);
+
+// الأنشطة النشطة في فصل معين 🆕
+router.get('/:classId/active-activities', classController.getClassActiveActivities);
+
 // جلب الأطفال غير المسكنين
 router.get('/unassigned', classController.getUnassignedChildren);
 

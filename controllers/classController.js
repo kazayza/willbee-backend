@@ -43,7 +43,6 @@ const getClassesDashboard = async (req, res) => {
                 C.Capacity,
                 C.Notes,
                 C.IsActive,
-                C.ActivityKind,
                 
                 (SELECT COUNT(*) 
                  FROM tbl_ChildClassHistory H 
@@ -91,7 +90,7 @@ const getClassesDashboard = async (req, res) => {
 // 2. تسكين أو نقل طالب
 // ================================================================
 const assignStudent = async (req, res) => {
-    const { childId, classId, notes, sessionId, userAdd } = req.body;
+    const { childId, classId, notes, sessionId, activityKind, userAdd } = req.body;
 
     if (!validateRequired({ childId, classId }, res)) return;
 
@@ -143,13 +142,14 @@ const assignStudent = async (req, res) => {
         // 4. فتح السجل الجديد
         request.input('notes', sql.NVarChar, notes || '');
         request.input('user', sql.VarChar, userAdd || 'System');
-        request.input('sessionId', sql.SmallInt, sessionId || null); // 🆕 اختياري
+        request.input('sessionId', sql.SmallInt, sessionId || null); // اختياري
+        request.input('activityKind', sql.NVarChar, activityKind || 'دراسة'); // 🆕 النشاط
         
         await request.query(`
             INSERT INTO tbl_ChildClassHistory 
-            (Child_ID, Class_ID, JoinDate, Notes, SessionID, userAdd, Addtime)
+            (Child_ID, Class_ID, JoinDate, Notes, SessionID, ActivityKind, userAdd, Addtime)
             VALUES 
-            (@childId, @classId, @egyptTime, @notes, @sessionId, @user, @egyptTime)
+            (@childId, @classId, @egyptTime, @notes, @sessionId, @activityKind, @user, @egyptTime)
         `);
 
         await transaction.commit();
@@ -342,7 +342,7 @@ const getUnassignedChildren = async (req, res) => {
 // 6. إضافة فصل جديد
 // ================================================================
 const addClass = async (req, res) => {
-    const { className, branchId, capacity, notes, activityKind, userAdd } = req.body;
+    const { className, branchId, capacity, notes, userAdd } = req.body;
 
     console.log('addClass Request:', req.body);
 
@@ -363,16 +363,15 @@ const addClass = async (req, res) => {
         request.input('branch', sql.SmallInt, parseInt(branchId));
         request.input('cap', sql.Int, parseInt(capacity));
         request.input('notes', sql.NVarChar, notes || '');
-        request.input('activityKind', sql.NVarChar, activityKind || 'دراسة');
         request.input('user', sql.VarChar, userAdd || 'System');
         request.input('egyptTime', sql.DateTime, egyptTime);
 
         const result = await request.query(`
             INSERT INTO tbl_Classroom 
-            (ClassName, BranchID, Capacity, Notes, IsActive, ActivityKind, userAdd, Addtime)
+            (ClassName, BranchID, Capacity, Notes, IsActive, userAdd, Addtime)
             OUTPUT INSERTED.Class_ID
             VALUES 
-            (@name, @branch, @cap, @notes, 1, @activityKind, @user, @egyptTime)
+            (@name, @branch, @cap, @notes, 1, @user, @egyptTime)
         `);
 
         res.status(201).json({ 
@@ -404,7 +403,7 @@ const addClass = async (req, res) => {
 // ================================================================
 const updateClass = async (req, res) => {
     const { id } = req.params;
-    const { className, capacity, notes, isActive, activityKind, userEdit } = req.body;
+    const { className, capacity, notes, isActive, userEdit } = req.body;
 
     // Debug
     console.log('updateClass - ID:', id);
@@ -466,7 +465,6 @@ const updateClass = async (req, res) => {
 
         const branchId = checkExist.recordset[0].BranchID;
         request.input('branchId', sql.SmallInt, branchId);
-        request.input('activityKind', sql.NVarChar, activityKind || 'دراسة');
 
         // التأكد من عدم تكرار الاسم
         const duplicateCheck = await request.query(`
@@ -489,7 +487,6 @@ const updateClass = async (req, res) => {
                 Capacity = @cap,
                 Notes = @notes,
                 IsActive = @active,
-                ActivityKind = @activityKind,
                 useredit = @user,
                 editTime = @egyptTime
             WHERE Class_ID = @id
@@ -589,6 +586,8 @@ const getClassChildren = async (req, res) => {
                 H.Child_ID,
                 H.JoinDate,
                 H.Notes as AssignNotes,
+                H.ActivityKind,
+                H.SessionID,
                 C.FullNameArabic,
                 C.Age,
                 C.birthDate
@@ -639,6 +638,8 @@ const getClassHistory = async (req, res) => {
                 H.JoinDate,
                 H.LeaveDate,
                 H.Notes as AssignNotes,
+                H.ActivityKind,
+                H.SessionID,
                 C.FullNameArabic,
                 C.Age
             FROM tbl_ChildClassHistory H
@@ -1014,9 +1015,9 @@ const getClassActivities = async (req, res) => {
 //     scope: activity (نشاط معين) | branch (فرع) | all (الكل)
 // ═══════════════════════════════════════════════════════════════
 const archiveClasses = async (req, res) => {
-    const { scope, branchId, activityKind, userEdit } = req.body;
+    const { scope, branchId, classId, activityKind, userEdit } = req.body;
 
-    if (!scope || !['activity', 'branch', 'all'].includes(scope)) {
+    if (!scope || !['activity', 'branch', 'class', 'all'].includes(scope)) {
         return res.status(400).json({
             success: false,
             message: 'نطاق الإفراغ غير صحيح'
@@ -1041,7 +1042,7 @@ const archiveClasses = async (req, res) => {
                 });
             }
             request.input('activityKind', sql.NVarChar, activityKind);
-            whereClause = `AND C.ActivityKind = @activityKind`;
+            whereClause = `AND H.ActivityKind = @activityKind`;
             params = `نشاط "${activityKind}"`;
         } else if (scope === 'branch') {
             if (!branchId) {
@@ -1053,6 +1054,22 @@ const archiveClasses = async (req, res) => {
             request.input('branchId', sql.SmallInt, parseInt(branchId));
             whereClause = `AND C.BranchID = @branchId`;
             params = 'الفرع المحدد';
+        } else if (scope === 'class') {
+            // 🆕 إفراغ فصل معين (مع نشاط اختياري)
+            if (!classId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'يجب تحديد الفصل'
+                });
+            }
+            request.input('classId', sql.Int, parseInt(classId));
+            whereClause = `AND H.Class_ID = @classId`;
+            params = 'الفصل المحدد';
+            if (activityKind) {
+                request.input('activityKind', sql.NVarChar, activityKind);
+                whereClause += ` AND H.ActivityKind = @activityKind`;
+                params = `نشاط "${activityKind}" في الفصل`;
+            }
         } else {
             params = 'جميع الفروع';
         }
@@ -1084,6 +1101,120 @@ const archiveClasses = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 17. جلب الأنشطة النشطة الموجودة حالياً في فصل معين
+// ═══════════════════════════════════════════════════════════════
+const getClassActiveActivities = async (req, res) => {
+    const { classId } = req.params;
+
+    if (!classId || isNaN(classId)) {
+        return res.status(400).json({
+            success: false,
+            message: 'رقم الفصل غير صحيح'
+        });
+    }
+
+    try {
+        const request = new sql.Request();
+        request.input('classId', sql.Int, parseInt(classId));
+
+        const result = await request.query(`
+            SELECT 
+                H.ActivityKind AS activityName,
+                COUNT(*) AS childCount
+            FROM tbl_ChildClassHistory H
+            WHERE H.Class_ID = @classId AND H.LeaveDate IS NULL
+            GROUP BY H.ActivityKind
+            ORDER BY H.ActivityKind
+        `);
+
+        res.status(200).json({
+            success: true,
+            data: result.recordset
+        });
+
+    } catch (err) {
+        console.error('getClassActiveActivities Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب الأنشطة',
+            error: err.message
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 18. أرشيف الفصول الشامل (كل الأطفال المؤرشفين + فلاتر)
+//     فلاتر: branchId (الفرع) | activityKind (النشاط) | من/إلى (فترة)
+// ═══════════════════════════════════════════════════════════════
+const getClassesArchive = async (req, res) => {
+    const { branchId, activityKind, fromDate, toDate } = req.query;
+
+    try {
+        const request = new sql.Request();
+
+        let whereClause = `H.LeaveDate IS NOT NULL`;
+
+        if (branchId) {
+            request.input('branchId', sql.SmallInt, parseInt(branchId));
+            whereClause += ` AND C.BranchID = @branchId`;
+        }
+
+        if (activityKind) {
+            request.input('activityKind', sql.NVarChar, activityKind);
+            whereClause += ` AND H.ActivityKind = @activityKind`;
+        }
+
+        if (fromDate) {
+            request.input('fromDate', sql.DateTime, new Date(fromDate));
+            whereClause += ` AND H.LeaveDate >= @fromDate`;
+        }
+
+        if (toDate) {
+            request.input('toDate', sql.DateTime, new Date(toDate));
+            whereClause += ` AND H.LeaveDate <= @toDate`;
+        }
+
+        const result = await request.query(`
+            SELECT 
+                H.RecordID,
+                H.Child_ID,
+                H.Class_ID,
+                H.JoinDate,
+                H.LeaveDate,
+                H.SessionID,
+                CH.FullNameArabic AS ChildName,
+                CH.Age,
+                C.ClassName,
+                H.ActivityKind,
+                C.BranchID,
+                B.branchName,
+                S.Sessions AS SessionName
+            FROM tbl_ChildClassHistory H
+            INNER JOIN tbl_Child CH ON H.Child_ID = CH.ID_Child
+            INNER JOIN tbl_Classroom C ON H.Class_ID = C.Class_ID
+            LEFT JOIN tbl_Branch B ON C.BranchID = B.IDbranch
+            LEFT JOIN tbl_Sessions S ON H.SessionID = S.IDSession
+            WHERE ${whereClause}
+            ORDER BY H.LeaveDate DESC
+        `);
+
+        res.status(200).json({
+            success: true,
+            count: result.recordset.length,
+            data: result.recordset
+        });
+
+    } catch (err) {
+        console.error('getClassesArchive Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب أرشيف الفصول',
+            error: err.message
+        });
+    }
+};
+
 module.exports = {
     getClassesDashboard,
     assignStudent,
@@ -1100,5 +1231,7 @@ module.exports = {
     getAvailableClassesForTransfer,
     getClassStatistics,
     getClassActivities,
-    archiveClasses
+    getClassActiveActivities,
+    archiveClasses,
+    getClassesArchive
 };
