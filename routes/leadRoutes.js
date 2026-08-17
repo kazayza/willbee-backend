@@ -3,6 +3,8 @@ const router = express.Router();
 const leadController = require('../controllers/leadController');
 
 // ✅ Cron Job Routes (لازم قبل /:id)
+// بندعم GET (عشان Vercel Cron بيبعت GET) و POST (للاختبار اليدوي)
+router.get('/send-reminders', leadController.sendFollowUpReminders);
 router.post('/send-reminders', leadController.sendFollowUpReminders);
 
 // جلب الـ Leads اللي محتاجين متابعة

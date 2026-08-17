@@ -14,6 +14,7 @@ const addInteraction = async (req, res) => {
         followUpRequired,
         followUpDate,
         followUpNotes,
+        nextFollowUp,      // 🆕 ميعاد المتابعة الجاية للـ Lead/Customer
         userAdd,
         clientTime 
     } = req.body;
@@ -84,6 +85,30 @@ const addInteraction = async (req, res) => {
                 @createdBy
             )
         `);
+
+        // 🆕 1️⃣ تحديث ميعاد المتابعة الجاية (لو اتبعت)
+        if (nextFollowUp) {
+            const followUpReq = new sql.Request();
+            followUpReq.input('nextDate', sql.DateTime, new Date(nextFollowUp));
+
+            if (leadId) {
+                followUpReq.input('leadId', sql.Int, leadId);
+                await followUpReq.query(`
+                    UPDATE tbl_Leads 
+                    SET NextFollowUp = @nextDate
+                    WHERE LeadID = @leadId AND IsDeleted = 0
+                `);
+            }
+
+            if (customerId) {
+                followUpReq.input('custId', sql.Int, customerId);
+                await followUpReq.query(`
+                    UPDATE tbl_Customers 
+                    SET NextFollowUpDate = @nextDate
+                    WHERE CustomerID = @custId AND IsDeleted = 0
+                `);
+            }
+        }
         
         if (leadId) {
     const updateRequest = new sql.Request();

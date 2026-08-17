@@ -319,7 +319,7 @@ const deleteLead = async (req, res) => {
 // 7. تحويل Lead إلى Customer
 const convertLeadToCustomer = async (req, res) => {
     const { leadId } = req.params;
-    const { userAdd, clientTime } = req.body;
+    const { userAdd, clientTime, nextFollowUpDate } = req.body;
 
     const transaction = new sql.Transaction();
 
@@ -347,18 +347,22 @@ const convertLeadToCustomer = async (req, res) => {
             return res.status(400).json({ message: 'تم تحويل هذا العميل مسبقاً' });
         }
 
+        // 📅 ميعاد المتابعة للعميل الجديد (اختياري — بيحدده الموظف في Dialog التحويل)
+        const followUpDate = nextFollowUpDate ? new Date(nextFollowUpDate) : null;
+
         const custRequest = new sql.Request(transaction);
         custRequest.input('name', sql.NVarChar, lead.FullName);
         custRequest.input('phone', sql.NVarChar, lead.Phone);
         custRequest.input('email', sql.NVarChar, lead.Email);
         custRequest.input('userAdd', sql.VarChar, userAdd || null);
         custRequest.input('addTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
+        custRequest.input('followUp', sql.DateTime, followUpDate);
 
         const custResult = await custRequest.query(`
             INSERT INTO tbl_Customers 
-            (FullName, Phone, Email, Status, CustomerType, CreatedAt, userAdd, Addtime)
+            (FullName, Phone, Email, Status, CustomerType, NextFollowUpDate, CreatedAt, userAdd, Addtime)
             OUTPUT inserted.CustomerID
-            VALUES (@name, @phone, @email, 'Active', 'Parent', @addTime, @userAdd, @addTime)
+            VALUES (@name, @phone, @email, 'Active', 'Parent', @followUp, @addTime, @userAdd, @addTime)
         `);
 
         const newCustID = custResult.recordset[0].CustomerID;
@@ -369,11 +373,13 @@ const convertLeadToCustomer = async (req, res) => {
         updateRequest.input('useredit', sql.VarChar, userAdd || null);
         updateRequest.input('editTime', sql.DateTime, clientTime ? new Date(clientTime) : new Date());
 
+        // ✅ تصفير ميعاد متابعة الـ Lead (المتابعة البيعية خلصت) + تحديث الحالة
         await updateRequest.query(`
             UPDATE tbl_Leads 
             SET Status = 'Converted', 
                 ConvertedToCustomerID = @cid, 
                 ConversionDate = @editTime,
+                NextFollowUp = NULL,
                 UpdatedAt = @editTime,
                 useredit = @useredit,
                 editTime = @editTime
@@ -383,7 +389,8 @@ const convertLeadToCustomer = async (req, res) => {
         await transaction.commit();
         res.status(200).json({ 
             message: 'تم تحويل العميل بنجاح! ', 
-            newCustomerId: newCustID 
+            newCustomerId: newCustID,
+            followUpSet: followUpDate ? true : false
         });
 
     } catch (err) {
@@ -530,13 +537,22 @@ const checkPhoneDuplicate = async (req, res) => {
         if (result.recordset.length > 0) {
             const record = result.recordset[0];
             const isLead = record.sourceType === 'lead';
+            const typeLabel = isLead ? 'عميل محتمل' : 'عميل فعلي';
+
+            // تنسيق تاريخ التسجيل لو موجود
+            let createdStr = '';
+            if (record.CreatedAt) {
+                try {
+                    createdStr = new Date(record.CreatedAt).toLocaleDateString('ar-EG', {
+                        year: 'numeric', month: 'long', day: 'numeric'
+                    });
+                } catch (e) { createdStr = String(record.CreatedAt); }
+            }
 
             return res.status(200).json({
                 exists: true,
                 sourceType: record.sourceType,
-                message: isLead
-                    ? `هذا الرقم مسجل بالفعل كعميل محتمل (${record.FullName})`
-                    : `هذا الرقم مسجل بالفعل كعميل (${record.FullName})`,
+                message: `⚠️ هذا الرقم مسجل مسبقاً كـ${typeLabel}\n👤 الاسم: ${record.FullName}\n📋 الحالة: ${record.Status}${createdStr ? `\n📅 تاريخ التسجيل: ${createdStr}` : ''}`,
                 data: {
                     id: record.id,
                     fullName: record.FullName,
