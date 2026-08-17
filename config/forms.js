@@ -10,6 +10,7 @@ const FORMS = [
     { fname: 'frm_ChildNew',          title: 'تسجيل طفل جديد',            category: 'شئون الأطفال' },
     { fname: 'frm_Child',             title: 'قائمة الأطفال',              category: 'شئون الأطفال' },
     { fname: 'frm_ChildrenReview',    title: 'أطفال محتاجين مراجعة',       category: 'شئون الأطفال' },
+    { fname: 'frm_ClassArchive',      title: 'أرشيف الفصول',               category: 'شئون الأطفال' },
     { fname: 'frmClassesDashboard',   title: 'إدارة الفصول',               category: 'شئون الأطفال' },
     { fname: 'frm_absenseChild',      title: 'غياب الأطفال',               category: 'شئون الأطفال' },
     { fname: 'frm_ChildIncome',       title: 'اشتراكات الأطفال',           category: 'شئون الأطفال' },
@@ -64,8 +65,9 @@ const FORMS = [
 
     // ─────────────── الإعدادات ───────────────
     { fname: 'frm_users',             title: 'المستخدمين',                 category: 'الإعدادات' },
-    { fname: 'frm_company',           title: 'بيانات الحضانة',             category: 'الإعدادات' },
     { fname: 'frm_Managment',         title: 'الإدارات',                   category: 'الإعدادات' },
+    { fname: 'frm_company',           title: 'بيانات الحضانة',             category: 'الإعدادات' },
+    { fname: 'frm_AdminNotifications', title: 'إشعارات النظام (أدمن)',     category: 'الإعدادات' },
     { fname: 'frm_salesPolo',         title: 'مبيعات التيشيرتات',          category: 'الإعدادات' },
 ];
 
