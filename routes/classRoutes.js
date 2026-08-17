@@ -7,6 +7,9 @@ const classController = require('../controllers/classController');
 // لوحة تحكم الفصول
 router.get('/dashboard', classController.getClassesDashboard);
 
+// جلب قائمة أنواع الأنشطة (دراسة + أنشطة) 🆕
+router.get('/activities', classController.getClassActivities);
+
 // جلب الأطفال غير المسكنين
 router.get('/unassigned', classController.getUnassignedChildren);
 
@@ -31,6 +34,9 @@ router.post('/', classController.addClass);
 
 // توزيع طالب جديد
 router.post('/assign-student', classController.assignStudent);
+
+// إفراغ الفصول (أرشفة) 🆕
+router.post('/archive', classController.archiveClasses);
 
 // نقل طالب بين الفصول 🆕
 router.post('/transfer-student', classController.transferStudent);

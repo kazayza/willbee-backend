@@ -43,6 +43,7 @@ const getClassesDashboard = async (req, res) => {
                 C.Capacity,
                 C.Notes,
                 C.IsActive,
+                C.ActivityKind,
                 
                 (SELECT COUNT(*) 
                  FROM tbl_ChildClassHistory H 
@@ -90,7 +91,7 @@ const getClassesDashboard = async (req, res) => {
 // 2. تسكين أو نقل طالب
 // ================================================================
 const assignStudent = async (req, res) => {
-    const { childId, classId, notes, userAdd } = req.body;
+    const { childId, classId, notes, sessionId, userAdd } = req.body;
 
     if (!validateRequired({ childId, classId }, res)) return;
 
@@ -142,12 +143,13 @@ const assignStudent = async (req, res) => {
         // 4. فتح السجل الجديد
         request.input('notes', sql.NVarChar, notes || '');
         request.input('user', sql.VarChar, userAdd || 'System');
+        request.input('sessionId', sql.SmallInt, sessionId || null); // 🆕 اختياري
         
         await request.query(`
             INSERT INTO tbl_ChildClassHistory 
-            (Child_ID, Class_ID, JoinDate, Notes, userAdd, Addtime)
+            (Child_ID, Class_ID, JoinDate, Notes, SessionID, userAdd, Addtime)
             VALUES 
-            (@childId, @classId, @egyptTime, @notes, @user, @egyptTime)
+            (@childId, @classId, @egyptTime, @notes, @sessionId, @user, @egyptTime)
         `);
 
         await transaction.commit();
@@ -340,7 +342,7 @@ const getUnassignedChildren = async (req, res) => {
 // 6. إضافة فصل جديد
 // ================================================================
 const addClass = async (req, res) => {
-    const { className, branchId, capacity, notes, userAdd } = req.body;
+    const { className, branchId, capacity, notes, activityKind, userAdd } = req.body;
 
     console.log('addClass Request:', req.body);
 
@@ -361,15 +363,16 @@ const addClass = async (req, res) => {
         request.input('branch', sql.SmallInt, parseInt(branchId));
         request.input('cap', sql.Int, parseInt(capacity));
         request.input('notes', sql.NVarChar, notes || '');
+        request.input('activityKind', sql.NVarChar, activityKind || 'دراسة');
         request.input('user', sql.VarChar, userAdd || 'System');
         request.input('egyptTime', sql.DateTime, egyptTime);
 
         const result = await request.query(`
             INSERT INTO tbl_Classroom 
-            (ClassName, BranchID, Capacity, Notes, IsActive, userAdd, Addtime)
+            (ClassName, BranchID, Capacity, Notes, IsActive, ActivityKind, userAdd, Addtime)
             OUTPUT INSERTED.Class_ID
             VALUES 
-            (@name, @branch, @cap, @notes, 1, @user, @egyptTime)
+            (@name, @branch, @cap, @notes, 1, @activityKind, @user, @egyptTime)
         `);
 
         res.status(201).json({ 
@@ -401,7 +404,7 @@ const addClass = async (req, res) => {
 // ================================================================
 const updateClass = async (req, res) => {
     const { id } = req.params;
-    const { className, capacity, notes, isActive, userEdit } = req.body;
+    const { className, capacity, notes, isActive, activityKind, userEdit } = req.body;
 
     // Debug
     console.log('updateClass - ID:', id);
@@ -463,6 +466,7 @@ const updateClass = async (req, res) => {
 
         const branchId = checkExist.recordset[0].BranchID;
         request.input('branchId', sql.SmallInt, branchId);
+        request.input('activityKind', sql.NVarChar, activityKind || 'دراسة');
 
         // التأكد من عدم تكرار الاسم
         const duplicateCheck = await request.query(`
@@ -485,6 +489,7 @@ const updateClass = async (req, res) => {
                 Capacity = @cap,
                 Notes = @notes,
                 IsActive = @active,
+                ActivityKind = @activityKind,
                 useredit = @user,
                 editTime = @egyptTime
             WHERE Class_ID = @id
@@ -971,6 +976,114 @@ const getClassStatistics = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 15. جلب قائمة أنواع الأنشطة (دراسة + أنشطة من tbl_incomeKind)
+// ═══════════════════════════════════════════════════════════════
+const getClassActivities = async (req, res) => {
+    try {
+        const request = new sql.Request();
+        const result = await request.query(`
+            SELECT ID, incomeKind AS activityName
+            FROM tbl_incomeKind
+            WHERE kindGroup = N'انشطة'
+            ORDER BY incomeKind
+        `);
+
+        // "دراسة" دايماً أول اختيار
+        const activities = [
+            { ID: 0, activityName: 'دراسة' },
+            ...result.recordset
+        ];
+
+        res.status(200).json({
+            success: true,
+            data: activities
+        });
+    } catch (err) {
+        console.error('getClassActivities Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في جلب الأنشطة',
+            error: err.message
+        });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 16. إفراغ الفصول (أرشفة) — المرونة الكاملة
+//     scope: activity (نشاط معين) | branch (فرع) | all (الكل)
+// ═══════════════════════════════════════════════════════════════
+const archiveClasses = async (req, res) => {
+    const { scope, branchId, activityKind, userEdit } = req.body;
+
+    if (!scope || !['activity', 'branch', 'all'].includes(scope)) {
+        return res.status(400).json({
+            success: false,
+            message: 'نطاق الإفراغ غير صحيح'
+        });
+    }
+
+    const egyptTime = getEgyptTime();
+
+    try {
+        const request = new sql.Request();
+        request.input('egyptTime', sql.DateTime, egyptTime);
+        request.input('user', sql.VarChar, userEdit || 'System');
+
+        let whereClause = '';
+        let params = '';
+
+        if (scope === 'activity') {
+            if (!activityKind) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'يجب تحديد نوع النشاط'
+                });
+            }
+            request.input('activityKind', sql.NVarChar, activityKind);
+            whereClause = `AND C.ActivityKind = @activityKind`;
+            params = `نشاط "${activityKind}"`;
+        } else if (scope === 'branch') {
+            if (!branchId) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'يجب تحديد الفرع'
+                });
+            }
+            request.input('branchId', sql.SmallInt, parseInt(branchId));
+            whereClause = `AND C.BranchID = @branchId`;
+            params = 'الفرع المحدد';
+        } else {
+            params = 'جميع الفروع';
+        }
+
+        const result = await request.query(`
+            UPDATE H
+            SET H.LeaveDate = @egyptTime,
+                H.useredit = @user,
+                H.editTime = @egyptTime
+            FROM tbl_ChildClassHistory H
+            INNER JOIN tbl_Classroom C ON H.Class_ID = C.Class_ID
+            WHERE H.LeaveDate IS NULL
+            ${whereClause}
+        `);
+
+        res.status(200).json({
+            success: true,
+            message: `تم إفراغ ${params} بنجاح (${result.rowsAffected[0]} طفل تم أرشفتهم)`,
+            archivedCount: result.rowsAffected[0]
+        });
+
+    } catch (err) {
+        console.error('archiveClasses Error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'خطأ في عملية الإفراغ',
+            error: err.message
+        });
+    }
+};
+
 module.exports = {
     getClassesDashboard,
     assignStudent,
@@ -985,5 +1098,7 @@ module.exports = {
     removeStudentFromClass,
     transferStudent,
     getAvailableClassesForTransfer,
-    getClassStatistics
+    getClassStatistics,
+    getClassActivities,
+    archiveClasses
 };
